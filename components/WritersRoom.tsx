@@ -1,600 +1,537 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
-import type { Artifact, Message, RetrievalMode, Room, PersonaId, RoomSection } from "@/types";
+import type { Message, Room, PersonaId, Artifact, SpotifyTone } from "@/types";
 
-interface GeneratedFile {
-  filename: string;
-  ext: string;
-  content: string;
-}
+// ── Design tokens (from Claude Design handoff) ───────────────────────────────
+const T = {
+  bg:    "#0a0a0a",
+  surf:  "#111111",
+  surf2: "#161616",
+  bdr:   "#1e1e1e",
+  bdr2:  "#2a2a2a",
+  text:  "#dcdcdc",
+  sub:   "#888888",
+  meta:  "#7a7a7a",
+  mono:  "'IBM Plex Mono', monospace",
+  sans:  "'IBM Plex Sans', sans-serif",
+} as const;
 
-const GENERATED_FILE_BLOCK_RE = /```file:([^\n`]+)\n([\s\S]*?)```/g;
-const TOUR_SEEN_KEY = "writers-room-tour-seen-v1";
-const NOTEBOOK_LM_LINK_KEY_PREFIX = "writers-room-notebooklm-link-";
-const NOTEBOOK_LM_UNSYNCED_KEY_PREFIX = "writers-room-notebooklm-unsynced-";
-const NOTEBOOK_LM_LAST_SYNC_KEY_PREFIX = "writers-room-notebooklm-last-sync-";
-const LORE_MESSAGE_THRESHOLD = 8;
-const TOUR_STEPS = [
-  {
-    title: "Welcome to your story studio",
-    body: "Write in plain language about your novel, setting, characters, or plot. Mention helpers only when you want specialist support.",
-  },
-  {
-    title: "Story section tone (optional)",
-    body: "Create a section like Chapter 1, Faction Lore, or Character Arc. Add a Spotify track to shape voice, pacing, and atmosphere.",
-  },
-  {
-    title: "Lore vault",
-    body: "Open FILES to upload your world bible, character notes, timelines, and research. This grounds AI responses in your canon.",
-  },
-  {
-    title: "Lore retrieval settings",
-    body: "Whole lore vault checks every source. Selected sources checks only what you tick. ADVANCED gives finer control when needed.",
-  },
-  {
-    title: "NotebookLM bridge",
-    body: "Save your NotebookLM URL, then export a Lore Pack from this room. Upload that pack into NotebookLM to keep long-term memory organized.",
-  },
-  {
-    title: "Download writing outputs",
-    body: "Ask for outlines, chapter drafts, world entries, and planning tables. Use DOWNLOAD or XLSX to keep reusable files.",
-  },
+type Screen = "empty" | "chat" | "roles";
+type Modal  = "command" | "clear" | "artifacts" | "tone" | "notebooklm" | "review" | null;
+type AgentId = "researcher" | "writer" | "editor" | "critic" | "director";
+
+const AGENTS = [
+  { id:"researcher" as AgentId, icon:"◈", color:"#0fe898", label:"Researcher", role:"facts, sources, context",  tagline:"What do we know for certain?"  },
+  { id:"writer"     as AgentId, icon:"✦", color:"#4da8ff", label:"Writer",     role:"drafts, prose, narrative", tagline:"Let me try a version of this." },
+  { id:"editor"     as AgentId, icon:"⌘", color:"#ffca00", label:"Editor",     role:"structure, clarity, tone", tagline:"Here's how I'd tighten this."  },
+  { id:"critic"     as AgentId, icon:"⚡", color:"#ff3d3d", label:"Critic",     role:"pushback, gaps, risk",     tagline:"I see three problems here."    },
+  { id:"director"   as AgentId, icon:"◎", color:"#c030ff", label:"Director",   role:"synthesis, direction",     tagline:"Taking everything together…"   },
 ];
-
-function getFileExt(filename: string) {
-  const parts = filename.split(".");
-  return (parts.length > 1 ? parts[parts.length - 1] : "txt").toLowerCase();
-}
-
-function parseGeneratedFiles(content: string): GeneratedFile[] {
-  const files: GeneratedFile[] = [];
-  let match;
-  while ((match = GENERATED_FILE_BLOCK_RE.exec(content)) !== null) {
-    const rawName = match[1].trim();
-    const safeName = rawName.replace(/[^\w.\-]/g, "_");
-    const text = match[2].replace(/\n$/, "");
-    files.push({
-      filename: safeName || `generated-${Date.now()}.txt`,
-      ext: getFileExt(safeName || "txt"),
-      content: text,
-    });
-  }
-  GENERATED_FILE_BLOCK_RE.lastIndex = 0;
-  return files;
-}
-
-function stripGeneratedFileBlocks(content: string) {
-  return content.replace(GENERATED_FILE_BLOCK_RE, "").trim();
-}
+const getAgent = (id: string) => AGENTS.find(a => a.id === id)!;
 
 interface Props {
   room: Room;
   currentUser: { id: string; name: string; image: string | null };
   userRole: "owner" | "member";
-  reviewScope?: { read: boolean; write: boolean } | null;
 }
 
-export default function WritersRoom({ room, currentUser, userRole, reviewScope = null }: Props) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [sections, setSections] = useState<RoomSection[]>([]);
-  const [selectedSectionId, setSelectedSectionId] = useState<string>("");
-  const [newSectionName, setNewSectionName] = useState("");
-  const [sectionSpotifyUrl, setSectionSpotifyUrl] = useState("");
-  const [sectionMoodBusy, setSectionMoodBusy] = useState(false);
-  const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
-  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("room_wide");
-  const [retrievalTopK, setRetrievalTopK] = useState(6);
-  const [retrievalThreshold, setRetrievalThreshold] = useState(0.14);
-  const [showRetrievalSettings, setShowRetrievalSettings] = useState(false);
-  const [showArtifacts, setShowArtifacts] = useState(false);
-  const [uploadingArtifact, setUploadingArtifact] = useState(false);
-  const [loadingChunksArtifactId, setLoadingChunksArtifactId] = useState<string | null>(null);
-  const [openChunksArtifactId, setOpenChunksArtifactId] = useState<string | null>(null);
-  const [artifactChunks, setArtifactChunks] = useState<Record<string, Array<{ id: string; chunk_index: number; content: string }>>>({});
-  const [reindexingArtifactId, setReindexingArtifactId] = useState<string | null>(null);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [postingMessage, setPostingMessage] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(true);
-  const [mentionQuery, setMentionQuery] = useState<{ query: string } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [artifactError, setArtifactError] = useState("");
-  const [sectionError, setSectionError] = useState("");
-  const [notebookLmUrl, setNotebookLmUrl] = useState("");
-  const [notebookStatus, setNotebookStatus] = useState("");
-  const [showNotebookGuide, setShowNotebookGuide] = useState(false);
-  const [notebookGuideCopied, setNotebookGuideCopied] = useState(false);
-  const [unsyncedLoreChanges, setUnsyncedLoreChanges] = useState(0);
-  const [messagesSinceLoreSync, setMessagesSinceLoreSync] = useState(0);
-  const [lastLoreSyncAt, setLastLoreSyncAt] = useState("");
-  const [showTourPrompt, setShowTourPrompt] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
-  const [tourStepIdx, setTourStepIdx] = useState(0);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const artifactInputRef = useRef<HTMLInputElement>(null);
-  const readOnlyReview = !!reviewScope?.read && !reviewScope?.write;
-  const ownerCanMaintainArtifacts = userRole === "owner" && !readOnlyReview;
+// ── Sub-components ───────────────────────────────────────────────────────────
 
-  // Load message history
+// Delete button shown on message hover
+function DelBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      position:"absolute", top:6, right:6, zIndex:5,
+      background:T.surf2, border:`1px solid ${T.bdr2}`,
+      borderRadius:4, cursor:"pointer", color:T.sub,
+      padding:"2px 7px", fontFamily:T.mono, fontSize:11, lineHeight:1.2,
+    }}>×</button>
+  );
+}
+
+// User message
+function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{ display:"flex", justifyContent:"flex-end", marginBottom:24, position:"relative" }}>
+      {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+      <div style={{
+        maxWidth:"62%", background:T.surf, border:`1px solid ${T.bdr}`,
+        borderRadius:8, padding:"10px 14px",
+        fontFamily:T.sans, fontSize:14, color:"#686868", lineHeight:1.65,
+        whiteSpace:"pre-wrap",
+      }}>
+        {msg.content}
+        <div style={{ fontSize:10, color:T.meta, marginTop:4, textAlign:"right", fontFamily:T.mono }}>
+          {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Agent message — unique treatment per role
+function AgentMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
+  const [hov, setHov] = useState(false);
+  const a = getAgent(msg.persona!);
+  const isCritic   = msg.persona === "critic";
+  const isWriter   = msg.persona === "writer";
+  const isEditor   = msg.persona === "editor";
+  const isResearch = msg.persona === "researcher";
+
+  const borders = isCritic
+    ? { border:`1.5px dashed ${a.color}77`, borderLeft:`3px solid ${a.color}` }
+    : isEditor
+    ? { borderLeft:`3px solid ${a.color}`, borderBottom:`1px solid ${a.color}66` }
+    : isResearch
+    ? { borderLeft:`3px solid ${a.color}`, borderRight:`1px solid ${a.color}44` }
+    : { borderLeft:`3px solid ${a.color}` };
+
+  const bg = isCritic ? a.color+"14" : isEditor ? a.color+"0d" : isResearch ? a.color+"0b" : a.color+"0a";
+
+  return (
+    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{
+        marginBottom:28, position:"relative",
+        marginLeft: isCritic ? 56 : 0,
+        background:bg, padding:"14px 18px",
+        ...borders,
+      }}>
+      {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+        <span style={{ fontSize:15, color:a.color }}>{a.icon}</span>
+        <span style={{ fontFamily:T.mono, fontSize:9.5, color:a.color, letterSpacing:"0.04em" }}>@{a.id}</span>
+        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:4 }}>
+          {isResearch?"RESEARCH":isWriter?"DRAFT":isEditor?"EDIT":isCritic?"CHALLENGE":""}
+        </span>
+        {isCritic && <span style={{ fontFamily:T.mono, fontSize:8, color:"#ff3d3d88", marginLeft:"auto", paddingRight:28 }}>dissent</span>}
+        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>
+          {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
+        </span>
+      </div>
+      <div style={{
+        fontFamily:T.sans,
+        fontSize: isWriter ? 16 : 14,
+        lineHeight: isWriter ? 1.9 : 1.7,
+        fontStyle: isWriter ? "italic" : "normal",
+        color:T.text, whiteSpace:"pre-wrap",
+      }}>{msg.content}</div>
+      {isResearch && (
+        <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginTop:10, borderTop:`1px solid ${T.bdr}`, paddingTop:6 }}>
+          sources cited · fact-checked
+        </div>
+      )}
+      {isWriter && (
+        <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginTop:10 }}>draft</div>
+      )}
+    </div>
+  );
+}
+
+// Director — full-bleed synthesis treatment
+function DirectorMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
+  const [hov, setHov] = useState(false);
+  const a = getAgent("director");
+  return (
+    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{
+        margin:"32px -24px", padding:"22px 40px",
+        background:a.color+"12",
+        borderTop:`1px solid ${a.color}44`, borderBottom:`1px solid ${a.color}28`,
+        position:"relative",
+      }}>
+      {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+        <span style={{ fontSize:18, color:a.color }}>◎</span>
+        <span style={{ fontFamily:T.mono, fontSize:10, color:a.color, letterSpacing:"0.06em" }}>@director</span>
+        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:6 }}>SYNTHESIS</span>
+        <div style={{ flex:1, height:1, background:a.color+"16", marginLeft:8 }} />
+        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>
+          {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
+        </span>
+      </div>
+      <div style={{ fontFamily:T.sans, fontSize:16, lineHeight:1.95, color:"#e8e8e8", maxWidth:640, whiteSpace:"pre-wrap" }}>
+        {msg.content}
+      </div>
+      <div style={{ display:"flex", gap:10, marginTop:18 }}>
+        {["save as direction →", "continue"].map(l => (
+          <button key={l} style={{
+            background:"none", border:`1px solid ${T.bdr2}`, borderRadius:4,
+            padding:"5px 14px", fontFamily:T.mono, fontSize:9, color:T.sub, cursor:"pointer",
+          }}>{l}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Message router
+function MsgComponent({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
+  if (msg.role === "user") return <UserMessage msg={msg} onDelete={onDelete} />;
+  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} />;
+  if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} />;
+  return null;
+}
+
+// Floating draggable dock (desktop)
+function FloatingDock({ onMention, agentCtx }: { onMention: (id: AgentId) => void; agentCtx: Record<string, string> }) {
+  const [pos, setPos]   = useState<{ x: number; y: number } | null>(null);
+  const [drag, setDrag] = useState(false);
+  const [hov, setHov]   = useState<string | null>(null);
+  const ref    = useRef<HTMLDivElement>(null);
+  const dstart = useRef<{ mx: number; my: number; ox: number; oy: number } | null>(null);
+
+  const onPDown = (e: React.PointerEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.tagName === "BUTTON" || t.tagName === "SPAN") return;
+    const r = ref.current!.getBoundingClientRect();
+    dstart.current = { mx: e.clientX, my: e.clientY, ox: r.left, oy: r.top };
+    setDrag(true);
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    if (!drag) return;
+    const mv = (e: PointerEvent) => {
+      const dx = e.clientX - dstart.current!.mx;
+      const dy = e.clientY - dstart.current!.my;
+      setPos({ x: dstart.current!.ox + dx, y: dstart.current!.oy + dy });
+    };
+    const up = () => setDrag(false);
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+    return () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); };
+  }, [drag]);
+
+  const posStyle = pos
+    ? { left: pos.x, top: pos.y, right: "auto", transform: "none" }
+    : { right: 24, top: "50%", transform: "translateY(-50%)" };
+
+  return (
+    <div ref={ref} onPointerDown={onPDown} style={{
+      position:"fixed", zIndex:100,
+      background:T.surf2, border:`1px solid ${T.bdr2}`,
+      borderRadius:14, padding:"6px 8px 10px",
+      display:"flex", flexDirection:"column", gap:6,
+      cursor: drag ? "grabbing" : "default",
+      boxShadow:"0 8px 40px #00000099",
+      userSelect:"none",
+      ...posStyle,
+    } as React.CSSProperties}>
+      <div style={{ height:14, display:"flex", alignItems:"center", justifyContent:"center", cursor:"grab" }}>
+        <div style={{ width:22, height:3, background:T.bdr2, borderRadius:99 }} />
+      </div>
+      {AGENTS.map(a => (
+        <div key={a.id} style={{ position:"relative" }}
+          onMouseEnter={() => setHov(a.id)} onMouseLeave={() => setHov(null)}>
+          {hov === a.id && (
+            <div style={{
+              position:"absolute", right:"calc(100% + 12px)", top:"50%",
+              transform:"translateY(-50%)",
+              width:210, background:T.surf2,
+              border:`1.5px solid ${a.color}44`, borderRadius:10,
+              padding:"12px 14px", pointerEvents:"none",
+              boxShadow:"0 4px 28px #00000099", zIndex:200,
+            }}>
+              <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:7 }}>
+                <span style={{ fontSize:17, color:a.color }}>{a.icon}</span>
+                <span style={{ fontFamily:T.mono, fontSize:10, color:a.color }}>@{a.id}</span>
+              </div>
+              <div style={{ fontFamily:T.mono, fontSize:8, color:T.sub, lineHeight:1.7 }}>{a.role}</div>
+              {agentCtx[a.id] && (
+                <div style={{ fontFamily:T.sans, fontSize:11, color:T.sub, lineHeight:1.5, borderTop:`1px solid ${T.bdr}`, paddingTop:8, marginTop:8 }}>
+                  {agentCtx[a.id]}
+                </div>
+              )}
+              <div style={{ fontFamily:T.sans, fontSize:11, color:a.color+"99", marginTop:8, fontStyle:"italic" }}>
+                {a.tagline}
+              </div>
+            </div>
+          )}
+          <button onClick={() => onMention(a.id)} style={{
+            width:48, height:48, background:a.color+"16",
+            border:`1.5px solid ${a.color}55`, borderRadius:10,
+            display:"flex", flexDirection:"column", alignItems:"center",
+            justifyContent:"center", gap:2, cursor:"pointer",
+          }}>
+            <span style={{ fontSize:19, color:a.color }}>{a.icon}</span>
+            <span style={{ fontFamily:T.mono, fontSize:6.5, color:a.color+"99" }}>{a.id.slice(0,3)}</span>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Command palette
+function CommandPalette({ onClose, onScreen, onClear, onDemo, onModal }: {
+  onClose: () => void;
+  onScreen: (s: Screen) => void;
+  onClear: () => void;
+  onDemo: () => void;
+  onModal: (m: Modal) => void;
+}) {
+  const items = [
+    { icon:"⚙",  label:"Configure roles",         sub:"add context for each agent",       fn: () => { onScreen("roles"); onClose(); } },
+    { icon:"▶",  label:"Load demo conversation",   sub:"slow journalism example",           fn: () => { onDemo(); onClose(); } },
+    { icon:"◈",  label:"Manage artifacts",         sub:"upload reference files for RAG",    fn: () => { onModal("artifacts"); onClose(); } },
+    { icon:"🎵", label:"Set section tone",         sub:"extract mood from Spotify track",   fn: () => { onModal("tone"); onClose(); } },
+    { icon:"◎",  label:"NotebookLM bridge",        sub:"link notebook & export Lore Pack",  fn: () => { onModal("notebooklm"); onClose(); } },
+    { icon:"⤴",  label:"Share review link",        sub:"read-only link, expires in 72h",   fn: () => { onModal("review"); onClose(); } },
+    { icon:"⌫",  label:"Clear conversation",       sub:"delete all messages",               fn: () => { onClear(); onClose(); } },
+  ];
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"#000000bb", zIndex:500,
+      display:"flex", alignItems:"center", justifyContent:"center",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width:460, background:T.surf2, border:`1.5px solid ${T.bdr2}`,
+        borderRadius:12, overflow:"hidden", boxShadow:"0 24px 64px #000",
+      }}>
+        <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.bdr}`, display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontFamily:T.mono, fontSize:11, color:T.sub }}>⌘K</span>
+          <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta, marginLeft:4 }}>COMMAND PALETTE</span>
+          <span style={{ marginLeft:"auto", fontFamily:T.mono, fontSize:9, color:T.meta }}>ESC to close</span>
+        </div>
+        {items.map((item, i) => (
+          <button key={i} onClick={item.fn} style={{
+            width:"100%", background:"none", border:"none",
+            borderBottom: i < items.length - 1 ? `1px solid ${T.bdr}` : "none",
+            padding:"12px 18px", cursor:"pointer", textAlign:"left",
+            display:"flex", alignItems:"center", gap:14,
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = T.surf)}
+          onMouseLeave={e => (e.currentTarget.style.background = "none")}>
+            <span style={{ fontSize:15, color:T.sub, width:22, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
+            <div>
+              <div style={{ fontFamily:T.sans, fontSize:13, color:T.text, marginBottom:2 }}>{item.label}</div>
+              <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.meta }}>{item.sub}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Clear confirmation modal
+function ClearConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div onClick={onCancel} style={{
+      position:"fixed", inset:0, background:"#000000bb", zIndex:500,
+      display:"flex", alignItems:"center", justifyContent:"center",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width:360, background:T.surf2, border:`1px solid ${T.bdr2}`,
+        borderRadius:12, padding:"28px 24px", boxShadow:"0 24px 64px #000",
+      }}>
+        <div style={{ fontFamily:T.sans, fontSize:15, color:T.text, marginBottom:8, fontWeight:500 }}>
+          Clear this conversation?
+        </div>
+        <div style={{ fontFamily:T.sans, fontSize:13, color:T.sub, marginBottom:28, lineHeight:1.6 }}>
+          All messages will be deleted. The room goes back to empty.
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button onClick={onCancel} style={{
+            background:"none", border:`1px solid ${T.bdr2}`, borderRadius:6,
+            padding:"8px 18px", fontFamily:T.sans, fontSize:13, color:T.sub, cursor:"pointer",
+          }}>Cancel</button>
+          <button onClick={onConfirm} style={{
+            background:"#ff3d3d18", border:"1px solid #ff3d3d55", borderRadius:6,
+            padding:"8px 18px", fontFamily:T.sans, fontSize:13, color:"#ff3d3d", cursor:"pointer",
+          }}>Clear chat</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Mobile agent bottom sheet
+function AgentBottomSheet({ onMention, onClose }: { onMention: (id: AgentId) => void; onClose: () => void }) {
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"#000000aa", zIndex:300,
+      display:"flex", flexDirection:"column", justifyContent:"flex-end",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background:T.surf2, borderRadius:"14px 14px 0 0",
+        borderTop:`1px solid ${T.bdr2}`, paddingBottom:40,
+      }}>
+        <div style={{ width:36, height:4, background:T.bdr2, borderRadius:99, margin:"12px auto 18px" }} />
+        <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta, textAlign:"center", marginBottom:14, letterSpacing:"0.12em" }}>
+          CALL AN AGENT
+        </div>
+        <div style={{ display:"flex", padding:"0 14px", gap:8 }}>
+          {AGENTS.map(a => (
+            <button key={a.id} onClick={() => { onMention(a.id); onClose(); }} style={{
+              flex:1, background:a.color+"16", border:`1px solid ${a.color}44`,
+              borderRadius:10, padding:"12px 0",
+              display:"flex", flexDirection:"column", alignItems:"center", gap:5, cursor:"pointer",
+            }}>
+              <span style={{ fontSize:22, color:a.color }}>{a.icon}</span>
+              <span style={{ fontFamily:T.mono, fontSize:8, color:a.color+"aa" }}>@{a.id.slice(0,4)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Feature modal wrapper
+function FeatureModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"#000000bb", zIndex:400,
+      display:"flex", alignItems:"center", justifyContent:"center",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width:480, background:T.surf2, border:`1px solid ${T.bdr2}`,
+        borderRadius:12, overflow:"hidden", boxShadow:"0 24px 64px #000",
+      }}>
+        <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.bdr}`, display:"flex", alignItems:"center" }}>
+          <span style={{ fontFamily:T.mono, fontSize:10, color:T.sub, letterSpacing:"0.1em" }}>{title}</span>
+          <button onClick={onClose} style={{ marginLeft:"auto", background:"none", border:"none", color:T.sub, cursor:"pointer", fontSize:18 }}>×</button>
+        </div>
+        <div style={{ padding:"20px" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
+export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
+  const router = useRouter();
+  const [screen, setScreen]   = useState<Screen>("empty");
+  const [modal, setModal]     = useState<Modal>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput]     = useState("");
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [room, setRoom]       = useState(initialRoom);
+  const [isMobile, setIsMobile] = useState(false);
+  const [showSheet, setShowSheet] = useState(false);
+  const [agentCtx, setAgentCtx] = useState<Record<string, string>>({});
+
+  // Feature state
+  const [artifacts, setArtifacts]   = useState<Artifact[]>([]);
+  const [uploadingArtifact, setUploadingArtifact] = useState(false);
+  const [spotifyUrl, setSpotifyUrl] = useState("");
+  const [loadingTone, setLoadingTone] = useState(false);
+  const [toneError, setToneError]   = useState("");
+  const [notebooklmUrl, setNotebooklmUrl] = useState(room.notebooklm_url ?? "");
+  const [savingNotebooklm, setSavingNotebooklm] = useState(false);
+  const [reviewLink, setReviewLink] = useState("");
+  const [generatingReview, setGeneratingReview] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef  = useRef<HTMLTextAreaElement>(null);
+  const fileRef   = useRef<HTMLInputElement>(null);
+
+  // Load history, artifacts, agent context on mount
   useEffect(() => {
     fetch(`/api/messages?roomId=${room.id}`)
       .then(r => r.json())
       .then(data => {
-        setMessages(data.map((m: any) => ({
-          ...m,
-          user_name: m.profiles?.name ?? "User",
-          user_avatar: m.profiles?.avatar_url ?? null,
-        })));
-        setLoadingHistory(false);
+        if (Array.isArray(data) && data.length > 0) {
+          setMessages(data.map((m: any) => ({
+            ...m,
+            user_name: m.profiles?.name ?? "User",
+            user_avatar: m.profiles?.avatar_url ?? null,
+          })));
+          setScreen("chat");
+        }
       });
 
     fetch(`/api/artifacts?roomId=${room.id}`)
       .then(r => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setArtifacts(data);
-      });
+      .then(data => Array.isArray(data) && setArtifacts(data));
 
-    fetch(`/api/sections?roomId=${room.id}`)
-      .then(r => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setSections(data);
-      });
+    // Restore agent context from localStorage
+    try {
+      const saved = localStorage.getItem(`wr-agent-ctx-${room.id}`);
+      if (saved) setAgentCtx(JSON.parse(saved));
+    } catch {}
+
+    // Mobile detection
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
   }, [room.id]);
+
+  // Keyboard shortcut: ⌘K
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setModal(m => m === "command" ? null : "command");
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  useEffect(() => {
-    if (readOnlyReview) return;
-    try {
-      const hasSeenTour = localStorage.getItem(TOUR_SEEN_KEY) === "true";
-      if (!hasSeenTour) setShowTourPrompt(true);
-    } catch {
-      // localStorage may be unavailable in restricted environments
-    }
-  }, [readOnlyReview]);
+  function now() { return new Date().toISOString(); }
 
-  useEffect(() => {
-    if (readOnlyReview) return;
-    try {
-      const stored = localStorage.getItem(`${NOTEBOOK_LM_LINK_KEY_PREFIX}${room.id}`) ?? "";
-      setNotebookLmUrl(stored);
-      const storedUnsynced = Number(localStorage.getItem(`${NOTEBOOK_LM_UNSYNCED_KEY_PREFIX}${room.id}`) ?? "0");
-      setUnsyncedLoreChanges(Number.isFinite(storedUnsynced) ? Math.max(0, storedUnsynced) : 0);
-      const storedLastSync = localStorage.getItem(`${NOTEBOOK_LM_LAST_SYNC_KEY_PREFIX}${room.id}`) ?? "";
-      setLastLoreSyncAt(storedLastSync);
-    } catch {
-      // localStorage may be unavailable
-    }
-  }, [room.id, readOnlyReview]);
-
-  function now() {
-    return new Date().toISOString();
-  }
-
-  function formatTime(iso: string) {
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-
-  const pushSystemMessage = (text: string) => {
-    const sysMsg: Message = {
-      id: `system-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      role: "system",
-      content: text,
-      created_at: now(),
-    };
-    setMessages((prev) => [...prev, sysMsg]);
+  // Agent context update (save to localStorage)
+  const updateAgentCtx = (agentId: string, value: string) => {
+    const next = { ...agentCtx, [agentId]: value };
+    setAgentCtx(next);
+    try { localStorage.setItem(`wr-agent-ctx-${room.id}`, JSON.stringify(next)); } catch {}
   };
 
-  const markTourSeen = () => {
-    try {
-      localStorage.setItem(TOUR_SEEN_KEY, "true");
-    } catch {
-      // noop
-    }
+  // Insert @mention into input
+  const insertMention = (id: AgentId) => {
+    setInput(prev => prev + `@${id} `);
+    inputRef.current?.focus();
   };
 
-  const startTour = () => {
-    setShowTourPrompt(false);
-    setTourStepIdx(0);
-    setTourOpen(true);
-    markTourSeen();
-  };
-
-  const skipTour = () => {
-    setShowTourPrompt(false);
-    setTourOpen(false);
-    markTourSeen();
-  };
-
-  const saveNotebookLmLink = () => {
-    if (readOnlyReview) return;
-    const trimmed = notebookLmUrl.trim();
-    try {
-      localStorage.setItem(`${NOTEBOOK_LM_LINK_KEY_PREFIX}${room.id}`, trimmed);
-      setNotebookStatus(trimmed ? "NotebookLM link saved for this room." : "NotebookLM link cleared.");
-      setTimeout(() => setNotebookStatus(""), 2400);
-    } catch {
-      setNotebookStatus("Could not save NotebookLM link in this browser.");
-      setTimeout(() => setNotebookStatus(""), 2400);
-    }
-  };
-
-  const persistLoreSyncMeta = (unsyncedCount: number, lastSyncIso?: string) => {
-    try {
-      localStorage.setItem(`${NOTEBOOK_LM_UNSYNCED_KEY_PREFIX}${room.id}`, String(Math.max(0, unsyncedCount)));
-      if (lastSyncIso !== undefined) {
-        localStorage.setItem(`${NOTEBOOK_LM_LAST_SYNC_KEY_PREFIX}${room.id}`, lastSyncIso);
-      }
-    } catch {
-      // localStorage may be unavailable
-    }
-  };
-
-  const registerLoreChange = () => {
-    setUnsyncedLoreChanges((prev) => {
-      const next = prev + 1;
-      persistLoreSyncMeta(next);
-      return next;
-    });
-  };
-
-  const markLoreSynced = (statusText = "Lore sync marked complete.") => {
-    const nowIso = new Date().toISOString();
-    setUnsyncedLoreChanges(0);
-    setMessagesSinceLoreSync(0);
-    setLastLoreSyncAt(nowIso);
-    persistLoreSyncMeta(0, nowIso);
-    setNotebookStatus(statusText);
-    setTimeout(() => setNotebookStatus(""), 2400);
-  };
-
-  const buildLorePack = () => {
-    const sectionLines = sections.length
-      ? sections.map((section) => {
-        const moodLabel = section.mood_profile?.moodLabel ? ` | mood: ${section.mood_profile.moodLabel}` : "";
-        const moodGuidance = section.mood_profile?.guidance ? `\n  guidance: ${section.mood_profile.guidance}` : "";
-        return `- ${section.name}${moodLabel}${moodGuidance}`;
-      }).join("\n")
-      : "- none yet";
-
-    const artifactLines = artifacts.length
-      ? artifacts.map((artifact) => `- ${artifact.name} (${artifact.kind}, ${artifact.parse_status})`).join("\n")
-      : "- none yet";
-
-    const recentMessages = messages
-      .filter((message) => message.role === "user" || message.role === "agent")
-      .slice(-60)
-      .map((message) => {
-        const speaker = message.role === "user"
-          ? message.user_name ?? "user"
-          : `agent:${message.persona ?? "assistant"}`;
-        const sectionTag = message.section_name ? ` [section: ${message.section_name}]` : "";
-        return `### ${speaker}${sectionTag}\n${stripGeneratedFileBlocks(message.content).trim() || "(no text)"}`;
-      })
-      .join("\n\n");
-
-    return [
-      `# ${room.name} - Lore Pack`,
-      "",
-      `Generated: ${new Date().toISOString()}`,
-      room.description ? `Room notes: ${room.description}` : "",
-      "",
-      "## Story World Snapshot",
-      sectionLines,
-      "",
-      "## Lore Sources",
-      artifactLines,
-      "",
-      "## Recent Story Development",
-      recentMessages || "_No chat messages yet._",
-      "",
-      "## Suggested NotebookLM Prompt",
-      "Use this lore pack as the canonical world reference. Prioritize consistency across character voice, timeline continuity, faction rules, and setting details.",
-      "",
-    ].filter(Boolean).join("\n");
-  };
-
-  const exportLorePack = () => {
-    const content = buildLorePack();
-    const safeRoom = room.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "story-world";
-    const filename = `${safeRoom}-lore-pack.md`;
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-    markLoreSynced(`Exported ${filename}`);
-  };
-
-  const openNotebookLm = () => {
-    const url = notebookLmUrl.trim() || "https://notebooklm.google.com/";
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
-  const notebookImportPrompt = "Use this lore pack as the canonical world reference. Prioritize consistency across character voice, timeline continuity, faction rules, and setting details.";
-
-  const copyNotebookPrompt = async () => {
-    try {
-      await navigator.clipboard.writeText(notebookImportPrompt);
-      setNotebookGuideCopied(true);
-      setTimeout(() => setNotebookGuideCopied(false), 1800);
-    } catch {
-      setNotebookStatus("Could not copy prompt automatically.");
-      setTimeout(() => setNotebookStatus(""), 2200);
-    }
-  };
-
-  const downloadFile = async (file: GeneratedFile, format: "native" | "xlsx" = "native") => {
-    try {
-      let blob: Blob;
-      let filename = file.filename;
-
-      if (format === "xlsx") {
-        const XLSX = await import("xlsx");
-        const workbook = XLSX.read(file.content, { type: "string" });
-        const output = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
-        blob = new Blob([output], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        });
-        filename = filename.replace(/\.[^.]+$/, "") + ".xlsx";
-      } else {
-        const type = file.ext === "csv" ? "text/csv;charset=utf-8" : "text/plain;charset=utf-8";
-        blob = new Blob([file.content], { type });
-      }
-
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-    } catch {
-      setArtifactError("Failed to generate downloadable file");
-    }
-  };
-
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setInput(val);
-    const cursor = e.target.selectionStart;
-    const before = val.slice(0, cursor);
-    const mentionMatch = before.match(/@(\w*)$/);
-    setMentionQuery(mentionMatch ? { query: mentionMatch[1] } : null);
-  };
-
-  const completeMention = (personaHandle: string) => {
-    if (!inputRef.current) return;
-    const cursor = inputRef.current.selectionStart;
-    const before = input.slice(0, cursor);
-    const after = input.slice(cursor);
-    setInput(before.replace(/@\w*$/, `@${personaHandle} `) + after);
-    setMentionQuery(null);
-    inputRef.current.focus();
-  };
-
-  const toggleArtifactSelection = (artifactId: string) => {
-    if (retrievalMode !== "selected_only") return;
-    setSelectedArtifactIds((prev) => (
-      prev.includes(artifactId)
-        ? prev.filter((id) => id !== artifactId)
-        : [...prev, artifactId]
-    ));
-  };
-
-  const handleArtifactUpload = async (file?: File) => {
-    if (!file || readOnlyReview) return;
-    setUploadingArtifact(true);
-    setArtifactError("");
-    try {
-      const form = new FormData();
-      form.append("roomId", room.id);
-      form.append("file", file);
-      const res = await fetch("/api/artifacts/upload", {
-        method: "POST",
-        body: form,
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error ?? "Upload failed");
-      if (payload.artifact) {
-        setArtifacts((prev) => [payload.artifact, ...prev]);
-        registerLoreChange();
-      }
-    } catch (err) {
-      setArtifactError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploadingArtifact(false);
-      if (artifactInputRef.current) artifactInputRef.current.value = "";
-    }
-  };
-
-  const deleteArtifact = async (artifactId: string) => {
-    if (!ownerCanMaintainArtifacts) return;
-    const res = await fetch(`/api/artifacts/${artifactId}`, { method: "DELETE" });
-    if (!res.ok) return;
-    setArtifacts((prev) => prev.filter((a) => a.id !== artifactId));
-    setSelectedArtifactIds((prev) => prev.filter((id) => id !== artifactId));
-    setArtifactChunks((prev) => {
-      const next = { ...prev };
-      delete next[artifactId];
-      return next;
-    });
-    if (openChunksArtifactId === artifactId) setOpenChunksArtifactId(null);
-    registerLoreChange();
-  };
-
-  const createSection = async () => {
-    const name = newSectionName.trim();
-    if (!name || readOnlyReview) return;
-    setSectionError("");
-    const res = await fetch("/api/sections", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomId: room.id, name }),
-    });
-    const payload = await res.json();
-    if (!res.ok) {
-      setSectionError(payload.error ?? "Failed to create section");
-      return;
-    }
-    setSections((prev) => [...prev, payload]);
-    setSelectedSectionId(payload.id);
-    setNewSectionName("");
-    registerLoreChange();
-  };
-
-  const applySpotifyMood = async () => {
-    if (!selectedSectionId || !sectionSpotifyUrl.trim() || readOnlyReview) return;
-    setSectionMoodBusy(true);
-    setSectionError("");
-    const res = await fetch(`/api/sections/${selectedSectionId}/mood`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spotifyUrl: sectionSpotifyUrl.trim() }),
-    });
-    const payload = await res.json();
-    setSectionMoodBusy(false);
-    if (!res.ok) {
-      setSectionError(payload.error ?? "Failed to extract song mood");
-      return;
-    }
-    if (payload.section) {
-      setSections((prev) => prev.map((s) => (s.id === payload.section.id ? payload.section : s)));
-    }
-  };
-
-  const loadArtifactChunks = async (artifactId: string) => {
-    if (!ownerCanMaintainArtifacts) return;
-    if (openChunksArtifactId === artifactId) {
-      setOpenChunksArtifactId(null);
-      return;
-    }
-
-    if (artifactChunks[artifactId]) {
-      setOpenChunksArtifactId(artifactId);
-      return;
-    }
-
-    setLoadingChunksArtifactId(artifactId);
-    const res = await fetch(`/api/artifacts/${artifactId}/chunks`);
-    const payload = await res.json();
-    setLoadingChunksArtifactId(null);
-    if (!res.ok) {
-      setArtifactError(payload.error ?? "Failed to load chunks");
-      return;
-    }
-    setArtifactChunks((prev) => ({ ...prev, [artifactId]: payload.chunks ?? [] }));
-    setOpenChunksArtifactId(artifactId);
-  };
-
-  const reindexArtifact = async (artifactId: string) => {
-    if (!ownerCanMaintainArtifacts) return;
-    setReindexingArtifactId(artifactId);
-    setArtifactError("");
-    const res = await fetch(`/api/artifacts/${artifactId}/reindex`, { method: "POST" });
-    const payload = await res.json();
-    setReindexingArtifactId(null);
-    if (!res.ok) {
-      setArtifactError(payload.error ?? "Reindex failed");
-      return;
-    }
-    if (payload.artifact) {
-      setArtifacts((prev) => prev.map((a) => (a.id === artifactId ? payload.artifact : a)));
-    }
-    setArtifactChunks((prev) => {
-      const next = { ...prev };
-      delete next[artifactId];
-      return next;
-    });
-    if (openChunksArtifactId === artifactId) setOpenChunksArtifactId(null);
-    registerLoreChange();
-  };
-
+  // Send message
   const send = useCallback(async () => {
     const text = input.trim();
-    if (readOnlyReview || !text || Object.keys(loading).length > 0 || postingMessage) return;
+    if (!text || Object.keys(loading).length > 0) return;
     setInput("");
-    setMentionQuery(null);
-    setPostingMessage(true);
 
-    let userMsg: Message;
-    try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomId: room.id,
-          content: text,
-          artifactIds: selectedArtifactIds,
-          sectionId: selectedSectionId || null,
-        }),
-      });
-      if (!res.ok) {
-        pushSystemMessage("Failed to save your message. Please retry.");
-        setInput(text);
-        return;
-      }
-      const saved = await res.json();
-      setMessagesSinceLoreSync((prev) => {
-        const next = prev + 1;
-        if (next >= LORE_MESSAGE_THRESHOLD) {
-          registerLoreChange();
-          return 0;
-        }
-        return next;
-      });
-
-      userMsg = {
-        ...saved,
-        role: "user",
-        artifact_ids: selectedArtifactIds,
-        section_id: selectedSectionId || null,
-        section_name: sections.find((s) => s.id === selectedSectionId)?.name ?? null,
-        user_name: currentUser.name,
-        user_avatar: currentUser.image,
-      };
-      setMessages(prev => [...prev, userMsg]);
-    } finally {
-      setPostingMessage(false);
-    }
+    // Save user message
+    const res = await fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId: room.id, content: text }),
+    });
+    const saved = await res.json();
+    const userMsg: Message = { ...saved, role: "user", user_name: currentUser.name, user_avatar: currentUser.image };
+    setMessages(prev => [...prev, userMsg]);
+    setScreen("chat");
 
     const mentions = parseMentions(text);
-    if (!mentions.length) {
-      pushSystemMessage(
-        "Your message is saved. To get an AI reply, add a helper such as @writer, @editor, or @researcher — or tap a chip above.",
-      );
-      return;
-    }
-
-    // Auto-synthesize when multiple agents are asked to weigh in.
-    const orderedMentions = [...mentions];
-    if (orderedMentions.length >= 2 && !orderedMentions.includes("director")) {
-      orderedMentions.push("director");
-    }
+    if (!mentions.length) return;
 
     const newLoading: Record<string, boolean> = {};
-    orderedMentions.forEach(id => { newLoading[id] = true; });
+    mentions.forEach(id => { newLoading[id] = true; });
     setLoading(newLoading);
 
     const historySnapshot = [...messages, userMsg].map(m => ({
-      role: m.role,
-      persona: m.persona,
-      content: m.content,
-      user_name: m.user_name,
+      role: m.role, persona: m.persona, content: m.content, user_name: m.user_name,
     }));
 
-    for (const personaId of orderedMentions) {
+    for (const personaId of mentions) {
       try {
         const agentRes = await fetch("/api/chat", {
           method: "POST",
@@ -604,1151 +541,463 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             userMessage: text,
             roomId: room.id,
             history: historySnapshot,
-            retrieval: {
-              mode: retrievalMode,
-              topK: retrievalTopK,
-              threshold: retrievalThreshold,
-              selectedArtifactIds,
-            },
-            sectionId: selectedSectionId || null,
+            allMentions: mentions,
+            agentContext: agentCtx[personaId] || null,
           }),
         });
-        const payload = await agentRes.json();
-        if (!agentRes.ok) {
-          throw new Error(payload.error ?? "Agent request failed");
-        }
-        const { text: agentText, citations, retrieval } = payload;
-        const agentMsg: Message = {
-          id: `${Date.now()}-${personaId}`,
-          role: "agent",
-          persona: personaId as PersonaId,
-          content: agentText,
-          citations: Array.isArray(citations) ? citations : [],
-          retrieval_debug: retrieval ?? undefined,
-          section_id: selectedSectionId || null,
-          section_name: sections.find((s) => s.id === selectedSectionId)?.name ?? null,
-          created_at: now(),
-        };
+        const { text: agentText, directorText } = await agentRes.json();
+        const agentMsg: Message = { id:`${Date.now()}-${personaId}`, role:"agent", persona:personaId as PersonaId, content:agentText, created_at:now() };
         setMessages(prev => [...prev, agentMsg]);
-        historySnapshot.push({ role: "agent", persona: personaId, content: agentText, user_name: undefined });
-      } catch {
-        const label = PERSONAS[personaId as PersonaId]?.name ?? personaId;
-        pushSystemMessage(`${label} failed to respond. You can try again.`);
-      }
+        historySnapshot.push({ role:"agent", persona:personaId, content:agentText, user_name:undefined });
+
+        if (directorText) {
+          const dirMsg: Message = { id:`${Date.now()}-director-auto`, role:"agent", persona:"director", content:directorText, created_at:now() };
+          setMessages(prev => [...prev, dirMsg]);
+          historySnapshot.push({ role:"agent", persona:"director", content:directorText, user_name:undefined });
+        }
+      } catch { /* skip */ }
       setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
     }
-  }, [
-    input,
-    loading,
-    postingMessage,
-    messages,
-    room.id,
-    currentUser,
-    selectedArtifactIds,
-    selectedSectionId,
-    sections,
-    retrievalMode,
-    retrievalTopK,
-    retrievalThreshold,
-    readOnlyReview,
-  ]);
+  }, [input, loading, messages, room.id, currentUser, agentCtx]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (mentionQuery) return;
-      send();
-    }
+  // Delete a message from local state
+  const deleteMsg = (id: string) => setMessages(prev => prev.filter(m => m.id !== id));
+
+  // Clear conversation
+  const clearConversation = () => {
+    setMessages([]);
+    setScreen("empty");
   };
 
-  const copyInvite = () => {
-    navigator.clipboard.writeText(room.invite_code ?? "");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // Load demo conversation
+  const loadDemo = () => {
+    const demo: Message[] = [
+      { id:"d1", role:"user", content:"@researcher — what are the key tensions in the slow journalism movement?", created_at:now(), user_name:currentUser.name },
+      { id:"d2", role:"agent", persona:"researcher", content:"Four tensions stand out:\n(1) Depth vs. timeliness — readers want breaking news but reward depth.\n(2) Reader patience vs. engagement metrics — long reads win awards but lose clicks.\n(3) Prestige vs. revenue — high cost, low frequency.\n(4) Platform vs. ownership — distributed via social, dependent on owned channels.", created_at:now() },
+      { id:"d3", role:"user", content:"@critic — what worries you about this framing?", created_at:now(), user_name:currentUser.name },
+      { id:"d4", role:"agent", persona:"critic", content:"Slow journalism is a luxury product. The model assumes readers will wait. They won't. You're designing for an audience that doesn't exist at scale. And the economics don't work unless you have significant subscriber lock-in from day one.", created_at:now() },
+      { id:"d5", role:"user", content:"@writer — try an opening paragraph", created_at:now(), user_name:currentUser.name },
+      { id:"d6", role:"agent", persona:"writer", content:"In an era when attention is the scarcest resource, slow journalism makes an audacious bet on the reader. It says: trust me, this is worth an hour of your life. Sometimes it's right. The question is whether \"sometimes\" is enough to build a business on.", created_at:now() },
+      { id:"d7", role:"agent", persona:"director", content:"Taking @researcher's tensions and @critic's challenge: reframe around the business model, not the format. The interesting story is whether slow journalism can survive economically — not whether it's better. That's the real tension.\n\nNext move: @writer, try again with the business model as the hook.", created_at:now() },
+    ];
+    setMessages(demo);
+    setScreen("chat");
   };
 
-  const renderContent = (text: string) => {
-    const parts = text.split(/(@\w+)/g);
-    return parts.map((part, i) => {
-      const match = part.match(/^@(\w+)$/);
-      if (match && PERSONAS[match[1].toLowerCase() as PersonaId]) {
-        const p = PERSONAS[match[1].toLowerCase() as PersonaId];
-        return <span key={i} style={{ color: p.color, fontWeight: 600 }}>{part}</span>;
-      }
-      return <span key={i}>{part}</span>;
+  // Artifacts
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingArtifact(true);
+    const content = await file.text();
+    const file_type = file.name.split(".").pop() ?? "txt";
+    const res = await fetch("/api/artifacts", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ roomId:room.id, name:file.name, content, file_type }),
     });
+    if (res.ok) setArtifacts(prev => [await res.json(), ...prev]);
+    setUploadingArtifact(false);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
-  const mentionOptions = PERSONA_LIST.filter(p =>
-    !mentionQuery || p.handle.startsWith(mentionQuery.query.toLowerCase())
-  );
-  const artifactNameMap = new Map(artifacts.map((a) => [a.id, a.name]));
-  const selectedSection = sections.find((s) => s.id === selectedSectionId) ?? null;
+  const deleteArtifact = async (id: string) => {
+    await fetch(`/api/artifacts?id=${id}`, { method:"DELETE" });
+    setArtifacts(prev => prev.filter(a => a.id !== id));
+  };
 
+  // Tone
+  const applyTone = async () => {
+    if (!spotifyUrl.trim()) return;
+    setLoadingTone(true); setToneError("");
+    const res = await fetch("/api/spotify", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ spotifyUrl }) });
+    const data = await res.json();
+    if (!res.ok) { setToneError(data.error ?? "Failed"); setLoadingTone(false); return; }
+    await fetch(`/api/rooms/${room.id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ active_tone: data }) });
+    setRoom(prev => ({ ...prev, active_tone: data }));
+    setLoadingTone(false); setSpotifyUrl("");
+  };
+
+  const clearTone = async () => {
+    await fetch(`/api/rooms/${room.id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ active_tone: null }) });
+    setRoom(prev => ({ ...prev, active_tone: null }));
+  };
+
+  // NotebookLM
+  const saveNotebooklm = async () => {
+    setSavingNotebooklm(true);
+    await fetch(`/api/rooms/${room.id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ notebooklm_url: notebooklmUrl || null }) });
+    setRoom(prev => ({ ...prev, notebooklm_url: notebooklmUrl || null }));
+    setSavingNotebooklm(false);
+  };
+
+  // Review link
+  const generateReview = async () => {
+    setGeneratingReview(true);
+    const res = await fetch("/api/review", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ roomId:room.id, expiresInHours:72 }) });
+    const data = await res.json();
+    setReviewLink(data.url ?? "");
+    setGeneratingReview(false);
+  };
+
+  const copyReview = () => {
+    navigator.clipboard.writeText(reviewLink);
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width:"100%", padding:"8px 10px", borderRadius:6,
+    background:T.bg, border:`1px solid ${T.bdr2}`,
+    color:T.text, fontSize:13, outline:"none", fontFamily:T.sans,
+  };
+
+  const tone = room.active_tone as SpotifyTone | null;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{
-      minHeight: "100vh", background: "#0a0a0a", color: "#e5e5e5",
-      fontFamily: "var(--font-sans)", display: "flex", flexDirection: "column",
+      height:"100vh", background:T.bg, color:T.text,
+      fontFamily:T.sans, display:"flex", flexDirection:"column", overflow:"hidden",
     }}>
-      {/* Header */}
-      <div style={{
-        padding: "14px 24px", borderBottom: "1px solid #1e1e1e", background: "#0d0d0d",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        position: "sticky", top: 0, zIndex: 50,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-          <div>
-            <div style={{ fontSize: "15px", fontWeight: 600, color: "#e5e5e5" }}>{room.name}</div>
-            {room.description && <div style={{ fontSize: "11px", color: "#555" }}>{room.description}</div>}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <button onClick={() => { setTourStepIdx(0); setTourOpen(true); }} style={{
-            background: "none", border: "1px solid #2a2a2a", color: "#888",
-            padding: "4px 10px", borderRadius: "6px", fontSize: "11px",
-            fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
-          }}>
-            TOUR
-          </button>
-          {reviewScope?.read && (
-            <span style={{ fontSize: "10px", color: readOnlyReview ? "#fbbf24" : "#34d399", fontFamily: "var(--font-mono)" }}>
-              REVIEW {readOnlyReview ? "READ-ONLY" : "WRITE"}
-            </span>
-          )}
-          <button onClick={() => setShowArtifacts((v) => !v)} style={{
-            background: "none", border: "1px solid #2a2a2a", color: showArtifacts ? "#60a5fa" : "#666",
-            padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
-            fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
-          }}>
-            {showArtifacts ? "HIDE FILES" : "FILES"}
-          </button>
-          {room.invite_code && (
-            <button onClick={copyInvite} style={{
-              background: "none", border: "1px solid #2a2a2a", color: copied ? "#34d399" : "#555",
-              padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
-              fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
-            }}>
-              {copied ? "COPIED!" : `INVITE: ${room.invite_code}`}
-            </button>
-          )}
-        </div>
-      </div>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap');
+        *, *::before, *::after { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: ${T.bg}; }
+        ::-webkit-scrollbar-thumb { background: ${T.bdr2}; border-radius: 2px; }
+        @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .msg-in { animation: fadeIn 0.2s ease; }
+        textarea { resize:none; } textarea:focus, input:focus { outline:none; }
+      `}</style>
 
-      {showArtifacts && (
-        <div style={{
-          padding: "12px 24px", borderBottom: "1px solid #1e1e1e", background: "#101010",
-          display: "flex", flexDirection: "column", gap: "10px",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "space-between" }}>
-            <span style={{ fontSize: "11px", color: "#888", fontFamily: "var(--font-mono)" }}>
-              LORE SOURCES ({artifacts.length})
+      {/* ── Header ── */}
+      <div style={{
+        height:48, display:"flex", alignItems:"center", padding:"0 20px", gap:10,
+        background:T.surf, borderBottom:`1px solid ${T.bdr}`, flexShrink:0,
+      }}>
+        {screen === "roles" ? (
+          <>
+            <button onClick={() => setScreen(messages.length > 0 ? "chat" : "empty")} style={{
+              background:"none", border:"none", cursor:"pointer",
+              fontFamily:T.mono, fontSize:11, color:T.sub, display:"flex", alignItems:"center", gap:5,
+            }}>← back</button>
+            <span style={{ fontFamily:T.mono, fontSize:10, color:T.text, letterSpacing:"0.14em", flex:1 }}>CONFIGURE ROLES</span>
+          </>
+        ) : (
+          <>
+            <button onClick={() => router.push("/rooms")} style={{ background:"none", border:"none", color:T.sub, fontSize:18, cursor:"pointer" }}>←</button>
+            <span style={{ fontFamily:T.mono, fontSize:10, color:T.sub, letterSpacing:"0.14em", flex:1 }}>
+              {room.name.toUpperCase()}
             </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <input
-                ref={artifactInputRef}
-                type="file"
-                onChange={(e) => handleArtifactUpload(e.target.files?.[0])}
-                style={{ display: "none" }}
-              />
-              <button
-                onClick={() => artifactInputRef.current?.click()}
-                disabled={uploadingArtifact || readOnlyReview}
-                style={{
-                  background: "#1d3461",
-                  border: "1px solid #2d4f8a",
-                  color: "#60a5fa",
-                  padding: "4px 10px",
-                  borderRadius: "6px",
-                  fontSize: "11px",
-                  fontFamily: "var(--font-mono)",
-                  opacity: uploadingArtifact || readOnlyReview ? 0.6 : 1,
-                }}
-              >
-                {uploadingArtifact ? "UPLOADING..." : "UPLOAD"}
-              </button>
-            </div>
-          </div>
-          {!ownerCanMaintainArtifacts && (
-            <div style={{ color: "#777", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
-              Chunk preview, re-index, and delete are owner-only tools.
-            </div>
-          )}
-          {retrievalMode !== "selected_only" && (
-            <div style={{ color: "#777", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
-              Source selection applies only in selected sources mode.
-            </div>
-          )}
-          {artifactError && <div style={{ color: "#f87171", fontSize: "12px" }}>{artifactError}</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "220px", overflow: "auto" }}>
-            {artifacts.map((artifact) => (
-              <div key={artifact.id} style={{
-                display: "flex", flexDirection: "column", gap: "6px",
-                background: "#151515", border: "1px solid #252525", borderRadius: "8px", padding: "8px 10px",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
-                  <button
-                    onClick={() => toggleArtifactSelection(artifact.id)}
-                    disabled={retrievalMode !== "selected_only"}
-                    title={retrievalMode === "selected_only" ? "Select source for lore retrieval" : "Switch retrieval mode to selected sources"}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: selectedArtifactIds.includes(artifact.id) ? "#60a5fa" : "#bbb",
-                      fontSize: "12px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      cursor: retrievalMode === "selected_only" ? "pointer" : "not-allowed",
-                      textAlign: "left",
-                      opacity: retrievalMode === "selected_only" ? 1 : 0.65,
-                    }}
-                  >
-                    <span>{selectedArtifactIds.includes(artifact.id) ? "☑" : "☐"}</span>
-                    <span>{artifact.name}</span>
-                    <span style={{ color: artifact.parse_status === "ready" ? "#34d399" : "#777", fontSize: "10px", fontFamily: "var(--font-mono)" }}>
-                      {artifact.parse_status.toUpperCase()}
-                    </span>
-                  </button>
-                  {ownerCanMaintainArtifacts ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <button
-                        onClick={() => loadArtifactChunks(artifact.id)}
-                        disabled={loadingChunksArtifactId === artifact.id}
-                        title="Preview indexed chunks"
-                        style={{
-                          background: "none",
-                          border: "1px solid #2a2a2a",
-                          color: "#aaa",
-                          borderRadius: "5px",
-                          fontSize: "10px",
-                          padding: "2px 6px",
-                        }}
-                      >
-                        {loadingChunksArtifactId === artifact.id ? "LOADING..." : openChunksArtifactId === artifact.id ? "HIDE CHUNKS" : "CHUNKS"}
-                      </button>
-                      <button
-                        onClick={() => reindexArtifact(artifact.id)}
-                        disabled={reindexingArtifactId === artifact.id}
-                        title="Re-run parsing and indexing"
-                        style={{
-                          background: "none",
-                          border: "1px solid #2d4f8a",
-                          color: "#60a5fa",
-                          borderRadius: "5px",
-                          fontSize: "10px",
-                          padding: "2px 6px",
-                        }}
-                      >
-                        {reindexingArtifactId === artifact.id ? "REINDEXING..." : "REINDEX"}
-                      </button>
-                      <button
-                        onClick={() => deleteArtifact(artifact.id)}
-                        title="Delete artifact and chunks"
-                        style={{
-                          background: "none",
-                          border: "1px solid #3a1d1d",
-                          color: "#f87171",
-                          borderRadius: "5px",
-                          fontSize: "10px",
-                          padding: "2px 6px",
-                        }}
-                      >
-                        DELETE
-                      </button>
-                    </div>
-                  ) : (
-                    <span style={{ fontSize: "10px", color: "#777", fontFamily: "var(--font-mono)" }}>
-                      OWNER TOOLS
-                    </span>
-                  )}
-                </div>
-                {openChunksArtifactId === artifact.id && (
-                  <div style={{ borderTop: "1px solid #222", paddingTop: "6px", display: "flex", flexDirection: "column", gap: "5px", maxHeight: "170px", overflow: "auto" }}>
-                    {(artifactChunks[artifact.id] ?? []).map((chunk) => (
-                      <div key={chunk.id} style={{ fontSize: "11px", color: "#999", lineHeight: 1.4 }}>
-                        <span style={{ color: "#60a5fa", fontFamily: "var(--font-mono)", marginRight: "6px" }}>#{chunk.chunk_index}</span>
-                        {chunk.content.slice(0, 280)}
-                        {chunk.content.length > 280 ? "..." : ""}
-                      </div>
-                    ))}
-                    {!(artifactChunks[artifact.id] ?? []).length && (
-                      <div style={{ fontSize: "11px", color: "#666" }}>No chunks available.</div>
-                    )}
-                  </div>
-                )}
+            {tone && (
+              <div style={{ display:"flex", alignItems:"center", gap:5, padding:"2px 8px", background:"#1a0530", border:"1px solid #c030ff30", borderRadius:12 }}>
+                <span style={{ fontSize:10 }}>🎵</span>
+                <span style={{ fontSize:9, color:"#c030ff", fontFamily:T.mono }}>{tone.trackName}</span>
               </div>
+            )}
+            {[
+              { lbl:"⌘K", title:"Command palette (⌘K)", fn:() => setModal("command") },
+              { lbl:"⚙",  title:"Configure roles",      fn:() => setScreen("roles")  },
+              { lbl:"⌫",  title:"Clear conversation",   fn:() => setModal("clear")   },
+            ].map(b => (
+              <button key={b.lbl} onClick={b.fn} title={b.title} style={{
+                background:"none", border:`1px solid ${T.bdr2}`, borderRadius:5,
+                width:30, height:30, cursor:"pointer", color:T.sub,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontFamily:T.mono, fontSize:12,
+              }}>{b.lbl}</button>
             ))}
-            {!artifacts.length && (
-              <div style={{ color: "#666", fontSize: "12px" }}>No lore sources yet. Upload your world bible, character notes, timelines, or research.</div>
-            )}
-          </div>
-          <div style={{
-            marginTop: "6px",
-            borderTop: "1px solid #1f1f1f",
-            paddingTop: "10px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-          }}>
-            <span style={{ fontSize: "11px", color: "#888", fontFamily: "var(--font-mono)" }}>
-              NOTEBOOKLM BRIDGE
-            </span>
-            <div style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>
-              Save your NotebookLM notebook link, then export a Lore Pack to upload as a source there.
-            </div>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-              <input
-                value={notebookLmUrl}
-                onChange={(e) => setNotebookLmUrl(e.target.value)}
-                placeholder="https://notebooklm.google.com/..."
-                disabled={readOnlyReview}
-                style={{
-                  minWidth: "240px",
-                  flex: 1,
-                  background: "#111",
-                  color: "#bbb",
-                  border: "1px solid #2a2a2a",
-                  borderRadius: "6px",
-                  padding: "6px 8px",
-                  fontSize: "12px",
-                }}
-              />
-              <button
-                onClick={saveNotebookLmLink}
-                disabled={readOnlyReview}
-                style={{
-                  background: "none",
-                  border: "1px solid #2a2a2a",
-                  color: "#aaa",
-                  borderRadius: "6px",
-                  fontSize: "11px",
-                  padding: "6px 10px",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                SAVE LINK
-              </button>
-              <button
-                onClick={openNotebookLm}
-                style={{
-                  background: "none",
-                  border: "1px solid #2d4f8a",
-                  color: "#60a5fa",
-                  borderRadius: "6px",
-                  fontSize: "11px",
-                  padding: "6px 10px",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                OPEN NOTEBOOKLM
-              </button>
-              <button
-                onClick={() => setShowNotebookGuide(true)}
-                style={{
-                  background: "none",
-                  border: "1px solid #2a2a2a",
-                  color: "#d1d5db",
-                  borderRadius: "6px",
-                  fontSize: "11px",
-                  padding: "6px 10px",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                GUIDED SYNC
-              </button>
-              <button
-                onClick={exportLorePack}
-                style={{
-                  background: "#1d3461",
-                  border: "1px solid #2d4f8a",
-                  color: "#60a5fa",
-                  borderRadius: "6px",
-                  fontSize: "11px",
-                  padding: "6px 10px",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                EXPORT LORE PACK
-              </button>
-            </div>
-            {notebookStatus && <div style={{ color: "#34d399", fontSize: "11px", fontFamily: "var(--font-mono)" }}>{notebookStatus}</div>}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
-      {!readOnlyReview && unsyncedLoreChanges > 0 && !showNotebookGuide && (
-        <div style={{
-          position: "fixed",
-          left: "16px",
-          bottom: "16px",
-          zIndex: 131,
-          width: "min(360px, calc(100vw - 24px))",
-          background: "#141414",
-          border: "1px solid #2a2a2a",
-          borderRadius: "12px",
-          padding: "12px",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-        }}>
-          <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "4px" }}>
-            NOTEBOOKLM SYNC REMINDER
-          </div>
-          <div style={{ color: "#e5e5e5", fontSize: "14px", marginBottom: "6px" }}>
-            Your lore changed recently. Sync to keep NotebookLM up to date.
-          </div>
-          <div style={{ color: "#9ca3af", fontSize: "12px", lineHeight: 1.45 }}>
-            Pending updates: {unsyncedLoreChanges}
-            {lastLoreSyncAt ? ` · last sync ${new Date(lastLoreSyncAt).toLocaleString()}` : ""}
-          </div>
-          <div style={{ marginTop: "10px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <button
-              onClick={() => setShowNotebookGuide(true)}
-              style={{
-                background: "#1d3461",
-                border: "1px solid #2d4f8a",
-                color: "#60a5fa",
-                borderRadius: "6px",
-                fontSize: "11px",
-                padding: "6px 10px",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              GUIDED SYNC
-            </button>
-            <button
-              onClick={() => markLoreSynced("Marked as synced.")}
-              style={{
-                background: "none",
-                border: "1px solid #2a2a2a",
-                color: "#aaa",
-                borderRadius: "6px",
-                fontSize: "11px",
-                padding: "6px 10px",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              MARK SYNCED
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showNotebookGuide && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          zIndex: 135,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "14px",
-        }}>
-          <div style={{
-            width: "min(680px, 100%)",
-            maxHeight: "90vh",
-            overflow: "auto",
-            background: "#141414",
-            border: "1px solid #2a2a2a",
-            borderRadius: "12px",
-            padding: "18px",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-              <h3 style={{ fontSize: "18px", color: "#e5e5e5" }}>Send Lore to NotebookLM</h3>
-              <button
-                onClick={() => setShowNotebookGuide(false)}
-                style={{ background: "none", border: "none", color: "#888", fontSize: "18px", lineHeight: 1 }}
-              >
-                ×
-              </button>
-            </div>
-            <p style={{ color: "#a3a3a3", fontSize: "13px", lineHeight: 1.5, marginBottom: "14px" }}>
-              Follow these steps once and repeat anytime your world changes.
-            </p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div style={{ background: "#111", border: "1px solid #252525", borderRadius: "10px", padding: "12px" }}>
-                <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "6px" }}>STEP 1</div>
-                <div style={{ fontSize: "14px", color: "#e5e5e5", marginBottom: "6px" }}>Export your latest Lore Pack</div>
-                <div style={{ fontSize: "12px", color: "#a3a3a3", marginBottom: "8px" }}>
-                  This creates a single `.md` file with sections, lore sources, and recent story development.
-                </div>
-                <button
-                  onClick={exportLorePack}
-                  style={{
-                    background: "#1d3461",
-                    border: "1px solid #2d4f8a",
-                    color: "#60a5fa",
-                    borderRadius: "6px",
-                    fontSize: "11px",
-                    padding: "6px 10px",
-                    fontFamily: "var(--font-mono)",
-                  }}
-                >
-                  EXPORT LORE PACK
-                </button>
+      {/* ── Screens ── */}
+      {screen === "empty" && (
+        <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+          {/* Desktop cast list */}
+          {!isMobile && (
+            <div style={{ width:264, background:T.surf, borderRight:`1px solid ${T.bdr}`, display:"flex", flexDirection:"column", flexShrink:0 }}>
+              <div style={{ padding:"18px 20px 14px", borderBottom:`1px solid ${T.bdr}` }}>
+                <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.sub, letterSpacing:"0.16em" }}>THE ROOM</div>
               </div>
-
-              <div style={{ background: "#111", border: "1px solid #252525", borderRadius: "10px", padding: "12px" }}>
-                <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "6px" }}>STEP 2</div>
-                <div style={{ fontSize: "14px", color: "#e5e5e5", marginBottom: "6px" }}>Open your NotebookLM notebook</div>
-                <div style={{ fontSize: "12px", color: "#a3a3a3", marginBottom: "8px" }}>
-                  Create a notebook if needed, then upload the Lore Pack file as a source.
-                </div>
-                <button
-                  onClick={openNotebookLm}
-                  style={{
-                    background: "none",
-                    border: "1px solid #2d4f8a",
-                    color: "#60a5fa",
-                    borderRadius: "6px",
-                    fontSize: "11px",
-                    padding: "6px 10px",
-                    fontFamily: "var(--font-mono)",
-                  }}
-                >
-                  OPEN NOTEBOOKLM
-                </button>
-              </div>
-
-              <div style={{ background: "#111", border: "1px solid #252525", borderRadius: "10px", padding: "12px" }}>
-                <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "6px" }}>STEP 3</div>
-                <div style={{ fontSize: "14px", color: "#e5e5e5", marginBottom: "6px" }}>Set the notebook instruction</div>
-                <div style={{ fontSize: "12px", color: "#a3a3a3", marginBottom: "8px" }}>
-                  Paste this once into your NotebookLM instruction so lore stays consistent:
-                </div>
-                <div style={{
-                  fontSize: "12px",
-                  color: "#d1d5db",
-                  background: "#0d0d0d",
-                  border: "1px solid #222",
-                  borderRadius: "8px",
-                  padding: "8px",
-                  lineHeight: 1.45,
-                }}>
-                  {notebookImportPrompt}
-                </div>
-                <div style={{ marginTop: "8px" }}>
-                  <button
-                    onClick={() => void copyNotebookPrompt()}
-                    style={{
-                      background: "none",
-                      border: "1px solid #2a2a2a",
-                      color: notebookGuideCopied ? "#34d399" : "#aaa",
-                      borderRadius: "6px",
-                      fontSize: "11px",
-                      padding: "6px 10px",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    {notebookGuideCopied ? "COPIED" : "COPY INSTRUCTION"}
+              <div style={{ flex:1, overflowY:"auto", padding:"10px 12px" }}>
+                {AGENTS.map(a => (
+                  <button key={a.id} onClick={() => insertMention(a.id)} style={{
+                    width:"100%", background:"none",
+                    border:`1px solid ${a.color}1e`, borderLeft:`3px solid ${a.color}`,
+                    borderRadius:"0 6px 6px 0", padding:"13px 14px",
+                    cursor:"pointer", textAlign:"left", marginBottom:7, display:"block",
+                  }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:5 }}>
+                      <span style={{ fontSize:18, color:a.color }}>{a.icon}</span>
+                      <span style={{ fontFamily:T.mono, fontSize:11, color:a.color }}>@{a.id}</span>
+                    </div>
+                    <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, lineHeight:1.55, marginBottom:6 }}>{a.role}</div>
+                    <div style={{ fontFamily:T.sans, fontSize:11.5, color:a.color+"77", fontStyle:"italic" }}>{a.tagline}</div>
                   </button>
-                </div>
+                ))}
               </div>
-            </div>
-
-            <div style={{ marginTop: "12px", fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>
-              Tip: repeat this sync whenever you add major world changes, new chapters, or lore files.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showTourPrompt && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 120,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <div style={{
-            width: "min(520px, calc(100vw - 32px))",
-            background: "#141414", border: "1px solid #2a2a2a", borderRadius: "12px",
-            padding: "20px 18px",
-          }}>
-            <h3 style={{ fontSize: "18px", color: "#e5e5e5", marginBottom: "8px" }}>Quick walkthrough?</h3>
-            <p style={{ fontSize: "14px", color: "#a3a3a3", lineHeight: 1.5 }}>
-              Optional 60-second guide to show what each setting does in plain language.
-            </p>
-            <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
-              <button onClick={startTour} style={{
-                background: "#1d3461", border: "1px solid #2d4f8a", color: "#60a5fa",
-                borderRadius: "8px", padding: "8px 12px", fontSize: "13px",
-              }}>
-                Start walkthrough
-              </button>
-              <button onClick={skipTour} style={{
-                background: "none", border: "1px solid #2a2a2a", color: "#888",
-                borderRadius: "8px", padding: "8px 12px", fontSize: "13px",
-              }}>
-                Not now
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tourOpen && (
-        <div style={{
-          position: "fixed", right: "16px", bottom: "16px", zIndex: 130,
-          width: "min(420px, calc(100vw - 24px))",
-          background: "#141414", border: "1px solid #2a2a2a", borderRadius: "12px",
-          padding: "14px",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-            <span style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
-              STEP {tourStepIdx + 1} / {TOUR_STEPS.length}
-            </span>
-            <button onClick={() => setTourOpen(false)} style={{
-              background: "none", border: "none", color: "#777", fontSize: "16px", lineHeight: 1,
-            }}>×</button>
-          </div>
-          <div style={{ fontSize: "16px", color: "#e5e5e5", fontWeight: 600, marginBottom: "6px" }}>
-            {TOUR_STEPS[tourStepIdx].title}
-          </div>
-          <div style={{ fontSize: "13px", color: "#a3a3a3", lineHeight: 1.5 }}>
-            {TOUR_STEPS[tourStepIdx].body}
-          </div>
-          <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
-            <button
-              onClick={() => setTourStepIdx((idx) => Math.max(0, idx - 1))}
-              disabled={tourStepIdx === 0}
-              style={{
-                background: "none", border: "1px solid #2a2a2a", color: "#888",
-                borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
-                opacity: tourStepIdx === 0 ? 0.5 : 1,
-              }}
-            >
-              Back
-            </button>
-            {tourStepIdx < TOUR_STEPS.length - 1 ? (
-              <button
-                onClick={() => setTourStepIdx((idx) => Math.min(TOUR_STEPS.length - 1, idx + 1))}
-                style={{
-                  background: "#1d3461", border: "1px solid #2d4f8a", color: "#60a5fa",
-                  borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
-                }}
-              >
-                Next
-              </button>
-            ) : (
-              <button
-                onClick={() => setTourOpen(false)}
-                style={{
-                  background: "#1d3461", border: "1px solid #2d4f8a", color: "#60a5fa",
-                  borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
-                }}
-              >
-                Done
-              </button>
-            )}
-            <button
-              onClick={skipTour}
-              style={{
-                marginLeft: "auto",
-                background: "none", border: "1px solid #2a2a2a", color: "#888",
-                borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
-              }}
-            >
-              Skip tour
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Agent strip */}
-      <div style={{
-        padding: "8px 24px", background: "#0d0d0d", borderBottom: "1px solid #161616",
-        display: "flex", gap: "6px", flexWrap: "wrap",
-      }}>
-        {PERSONA_LIST.map(p => (
-          <button
-            key={p.id}
-            onClick={() => { setInput(prev => prev + `@${p.handle} `); inputRef.current?.focus(); }}
-            style={{
-              display: "flex", alignItems: "center", gap: "5px",
-              padding: "3px 8px 3px 5px", borderRadius: "20px",
-              background: p.accent + "80", border: `1px solid ${p.color}20`,
-              fontSize: "11px", fontFamily: "var(--font-mono)", cursor: "pointer",
-              transition: "border-color 0.15s",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = p.color + "60")}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = p.color + "20")}
-          >
-            <span style={{ color: p.color }}>{p.icon}</span>
-            <span style={{ color: p.color + "cc", letterSpacing: "0.06em" }}>@{p.handle}</span>
-          </button>
-        ))}
-        {loading && Object.keys(loading).length > 0 && (
-          <span style={{ fontSize: "10px", color: "#444", fontFamily: "var(--font-mono)", alignSelf: "center", marginLeft: "auto" }}>
-            {Object.keys(loading).join(", ")} thinking...
-          </span>
-        )}
-      </div>
-
-      {/* Messages */}
-      <div style={{
-        flex: 1, overflow: "auto", padding: "20px 24px",
-        display: "flex", flexDirection: "column", gap: "6px",
-      }}>
-        {loadingHistory && (
-          <p style={{ color: "#333", fontFamily: "var(--font-mono)", fontSize: "11px", textAlign: "center" }}>
-            Loading history...
-          </p>
-        )}
-
-        {messages.map(msg => {
-          const generatedFiles = parseGeneratedFiles(msg.content);
-          const displayContent = stripGeneratedFileBlocks(msg.content);
-
-          if (msg.role === "user") {
-            const isMe = msg.user_id === currentUser.id;
-            return (
-              <div key={msg.id} className="msg-in" style={{
-                display: "flex", justifyContent: isMe ? "flex-end" : "flex-start", gap: "8px",
-                alignItems: "flex-end",
-              }}>
-                {!isMe && msg.user_avatar && (
-                  <img src={msg.user_avatar} alt="" style={{ width: "22px", height: "22px", borderRadius: "50%", border: "1px solid #2a2a2a", flexShrink: 0 }} />
-                )}
-                <div style={{
-                  maxWidth: "70%", background: isMe ? "#1c1c1c" : "#161616",
-                  border: `1px solid ${isMe ? "#333" : "#2a2a2a"}`,
-                  borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                  padding: "10px 14px",
-                }}>
-                  {!isMe && <div style={{ fontSize: "10px", color: "#555", marginBottom: "3px", fontFamily: "var(--font-mono)" }}>{msg.user_name}</div>}
-                  {displayContent && (
-                    <div style={{ fontSize: "14px", color: "#e5e5e5", lineHeight: "1.55", whiteSpace: "pre-wrap" }}>
-                      {renderContent(displayContent)}
-                    </div>
-                  )}
-                  {msg.section_name && (
-                    <div style={{ marginTop: "6px", fontSize: "10px", color: "#a78bfa", fontFamily: "var(--font-mono)" }}>
-                      section: {msg.section_name}
-                    </div>
-                  )}
-                  {!!generatedFiles.length && (
-                    <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {generatedFiles.map((file) => (
-                        <div key={`${msg.id}-${file.filename}`} style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "var(--font-mono)" }}>
-                            FILE: {file.filename}
-                          </span>
-                          <button
-                            onClick={() => void downloadFile(file)}
-                            style={{ fontSize: "10px", border: "1px solid #2a2a2a", background: "#111", color: "#ddd", borderRadius: "5px", padding: "2px 6px" }}
-                          >
-                            DOWNLOAD
-                          </button>
-                          {file.ext === "csv" && (
-                            <button
-                              onClick={() => void downloadFile(file, "xlsx")}
-                              style={{ fontSize: "10px", border: "1px solid #2d4f8a", background: "#111", color: "#60a5fa", borderRadius: "5px", padding: "2px 6px" }}
-                            >
-                              XLSX
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!!msg.artifact_ids?.length && (
-                    <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                      {msg.artifact_ids.map((artifactId) => (
-                        <span
-                          key={artifactId}
-                          style={{
-                            fontSize: "10px",
-                            color: "#60a5fa",
-                            border: "1px solid #2d4f8a",
-                            borderRadius: "999px",
-                            padding: "2px 6px",
-                            fontFamily: "var(--font-mono)",
-                          }}
-                        >
-                          {artifactNameMap.get(artifactId) ?? "Artifact"}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ fontSize: "10px", color: "#444", marginTop: "4px", textAlign: isMe ? "right" : "left", fontFamily: "var(--font-mono)" }}>
-                    {formatTime(msg.created_at)}
-                  </div>
-                </div>
-              </div>
-            );
-          }
-
-          if (msg.role === "agent" && msg.persona) {
-            const persona = PERSONAS[msg.persona];
-            return (
-              <div key={msg.id} className="msg-in" style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
-                <div style={{
-                  width: "28px", height: "28px", borderRadius: "6px", flexShrink: 0,
-                  background: persona.accent, border: `1px solid ${persona.color}40`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "12px", color: persona.color,
-                }}>
-                  {persona.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: "8px", alignItems: "baseline", marginBottom: "4px" }}>
-                    <span style={{ fontSize: "11px", color: persona.color, fontFamily: "var(--font-mono)", letterSpacing: "0.08em", fontWeight: 600 }}>
-                      {persona.name.toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: "10px", color: "#333", fontFamily: "var(--font-mono)" }}>
-                      {formatTime(msg.created_at)}
-                    </span>
-                  </div>
-                  {displayContent && (
-                    <div style={{
-                      background: "#111", border: "1px solid #222",
-                      borderLeft: `3px solid ${persona.color}50`,
-                      borderRadius: "0 8px 8px 0", padding: "10px 14px",
-                      fontSize: "14px", color: "#d4d4d4", lineHeight: "1.65", whiteSpace: "pre-wrap",
-                    }}>
-                      {renderContent(displayContent)}
-                    </div>
-                  )}
-                  {msg.section_name && (
-                    <div style={{ marginTop: "6px", fontSize: "10px", color: "#a78bfa", fontFamily: "var(--font-mono)" }}>
-                      section: {msg.section_name}
-                    </div>
-                  )}
-                  {!!generatedFiles.length && (
-                    <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {generatedFiles.map((file) => (
-                        <div key={`${msg.id}-${file.filename}`} style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "var(--font-mono)" }}>
-                            FILE: {file.filename}
-                          </span>
-                          <button
-                            onClick={() => void downloadFile(file)}
-                            style={{ fontSize: "10px", border: "1px solid #2a2a2a", background: "#111", color: "#ddd", borderRadius: "5px", padding: "2px 6px" }}
-                          >
-                            DOWNLOAD
-                          </button>
-                          {file.ext === "csv" && (
-                            <button
-                              onClick={() => void downloadFile(file, "xlsx")}
-                              style={{ fontSize: "10px", border: "1px solid #2d4f8a", background: "#111", color: "#60a5fa", borderRadius: "5px", padding: "2px 6px" }}
-                            >
-                              XLSX
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!!msg.citations?.length && (
-                    <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                      {msg.citations.map((citation) => (
-                        <span
-                          key={citation.chunkId}
-                          style={{
-                            fontSize: "10px",
-                            color: "#aaa",
-                            border: "1px solid #2a2a2a",
-                            borderRadius: "999px",
-                            padding: "2px 7px",
-                            fontFamily: "var(--font-mono)",
-                          }}
-                          title={`score ${citation.score}`}
-                        >
-                          {citation.artifactName}#{citation.chunkIndex}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {msg.retrieval_debug && (
-                    <div style={{ marginTop: "6px", fontSize: "10px", color: "#777", fontFamily: "var(--font-mono)" }}>
-                      retrieval {msg.retrieval_debug.mode} · chunks {msg.retrieval_debug.retrievedCount}/{msg.retrieval_debug.topK} · threshold {msg.retrieval_debug.threshold.toFixed(2)} · maxScore {msg.retrieval_debug.maxScore.toFixed(2)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          }
-
-          if (msg.role === "system") {
-            return (
-              <div key={msg.id} style={{ display: "flex", justifyContent: "center" }}>
-                <div style={{
-                  maxWidth: "70%",
-                  background: "#1a1208",
-                  border: "1px solid #3a2a12",
-                  color: "#fbbf24",
-                  borderRadius: "8px",
-                  padding: "8px 12px",
-                  fontSize: "12px",
-                  fontFamily: "var(--font-mono)",
-                }}>
-                  {msg.content}
-                </div>
-              </div>
-            );
-          }
-
-          return null;
-        })}
-
-        {/* Typing indicators */}
-        {Object.keys(loading).map(personaId => {
-          const persona = PERSONAS[personaId as PersonaId];
-          return (
-            <div key={`typing-${personaId}`} className="msg-in" style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
-              <div style={{
-                width: "28px", height: "28px", borderRadius: "6px", flexShrink: 0,
-                background: persona.accent, border: `1px solid ${persona.color}40`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "12px", color: persona.color,
-              }}>
-                {persona.icon}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: "11px", color: persona.color, fontFamily: "var(--font-mono)", marginBottom: "4px", letterSpacing: "0.08em" }}>
-                  {persona.name.toUpperCase()}
-                </div>
-                <div style={{
-                  background: "#141414", border: "1px solid #2a2a2a", borderRadius: "8px",
-                  padding: "10px 14px", display: "inline-flex", gap: "5px", alignItems: "center",
-                }}>
-                  {[0, 1, 2].map(i => (
-                    <div key={i} style={{
-                      width: "5px", height: "5px", borderRadius: "50%", background: persona.color,
-                      animation: "bounce 1.2s ease-in-out infinite",
-                      animationDelay: `${i * 0.2}s`, opacity: 0.7,
-                    }} />
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div style={{ padding: "16px 24px", borderTop: "1px solid #1e1e1e", background: "#0d0d0d" }}>
-        <div style={{ position: "relative" }}>
-          <div style={{
-            marginBottom: "8px",
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            flexWrap: "wrap",
-            fontSize: "11px",
-            color: "#777",
-            fontFamily: "var(--font-mono)",
-          }}>
-            <span>Story Section Tone</span>
-            <select
-              value={selectedSectionId}
-              onChange={(e) => setSelectedSectionId(e.target.value)}
-              disabled={readOnlyReview}
-              style={{ background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
-            >
-              <option value="">none</option>
-              {sections.map((section) => (
-                <option key={section.id} value={section.id}>
-                  {section.name}
-                </option>
-              ))}
-            </select>
-            <input
-              value={newSectionName}
-              onChange={(e) => setNewSectionName(e.target.value)}
-              placeholder="new section (ex: Chapter 1)"
-              disabled={readOnlyReview}
-              style={{ width: "120px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
-            />
-            <button
-              onClick={() => void createSection()}
-              disabled={readOnlyReview || !newSectionName.trim()}
-              style={{ background: "none", border: "1px solid #2a2a2a", color: "#aaa", borderRadius: "5px", fontSize: "10px", padding: "2px 6px", fontFamily: "var(--font-mono)" }}
-            >
-              ADD SECTION
-            </button>
-            {selectedSection && (
-              <>
-                <input
-                  value={sectionSpotifyUrl}
-                  onChange={(e) => setSectionSpotifyUrl(e.target.value)}
-                  placeholder="spotify track link for section mood"
-                  disabled={readOnlyReview}
-                  style={{ width: "180px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
-                />
-                <button
-                  onClick={() => void applySpotifyMood()}
-                  disabled={readOnlyReview || !sectionSpotifyUrl.trim() || sectionMoodBusy}
-                  style={{ background: "none", border: "1px solid #2d4f8a", color: "#60a5fa", borderRadius: "5px", fontSize: "10px", padding: "2px 6px", fontFamily: "var(--font-mono)" }}
-                >
-                  {sectionMoodBusy ? "ANALYZING..." : "EXTRACT MOOD"}
-                </button>
-              </>
-            )}
-            {selectedSection?.mood_profile?.moodLabel && (
-              <span style={{ color: "#9ca3af" }}>
-                mood: {selectedSection.mood_profile.moodLabel}
-              </span>
-            )}
-            {sectionError && <span style={{ color: "#f87171" }}>{sectionError}</span>}
-          </div>
-          <div style={{
-            marginBottom: "8px",
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            flexWrap: "wrap",
-            fontSize: "11px",
-            color: "#777",
-            fontFamily: "var(--font-mono)",
-          }}>
-            <span>Retrieval</span>
-            <button
-              onClick={() => setShowRetrievalSettings((v) => !v)}
-              style={{
-                background: "none",
-                border: "1px solid #2a2a2a",
-                color: "#aaa",
-                borderRadius: "5px",
-                fontSize: "10px",
-                padding: "2px 6px",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              {showRetrievalSettings ? "HIDE SETTINGS" : "ADVANCED"}
-            </button>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span>Mode</span>
-              <select
-                value={retrievalMode}
-                onChange={(e) => setRetrievalMode(e.target.value as RetrievalMode)}
-                disabled={readOnlyReview}
-                style={{ background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
-              >
-                <option value="room_wide">whole lore vault</option>
-                <option value="selected_only">selected sources</option>
-              </select>
-            </label>
-            {showRetrievalSettings && (
-              <>
-                <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>TopK</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={retrievalTopK}
-                    disabled={readOnlyReview}
-                    onChange={(e) => setRetrievalTopK(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
-                    style={{ width: "54px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
-                  />
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>Threshold</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    disabled={readOnlyReview}
-                    value={retrievalThreshold}
-                    onChange={(e) => setRetrievalThreshold(Number(e.target.value))}
-                  />
-                  <span>{retrievalThreshold.toFixed(2)}</span>
-                </label>
-              </>
-            )}
-            {retrievalMode === "selected_only" && selectedArtifactIds.length === 0 && (
-              <span style={{ color: "#fbbf24" }}>Select at least one lore source</span>
-            )}
-          </div>
-
-          {mentionQuery !== null && mentionOptions.length > 0 && (
-            <div style={{
-              position: "absolute", bottom: "calc(100% + 8px)", left: 0,
-              background: "#1a1a1a", border: "1px solid #333", borderRadius: "8px",
-              overflow: "hidden", zIndex: 100, minWidth: "180px",
-              boxShadow: "0 -4px 20px rgba(0,0,0,0.5)",
-            }}>
-              {mentionOptions.map(p => (
-                <div key={p.id} onClick={() => completeMention(p.handle)} style={{
-                  display: "flex", alignItems: "center", gap: "10px",
-                  padding: "8px 12px", cursor: "pointer",
-                }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "#252525")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                >
-                  <span style={{
-                    width: "22px", height: "22px", borderRadius: "4px",
-                    background: p.accent, border: `1px solid ${p.color}40`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "11px", color: p.color,
-                  }}>{p.icon}</span>
-                  <div>
-                    <div style={{ fontSize: "13px", color: "#e5e5e5" }}>@{p.handle}</div>
-                    <div style={{ fontSize: "10px", color: "#666", fontFamily: "var(--font-mono)" }}>{p.name}</div>
-                  </div>
-                </div>
-              ))}
             </div>
           )}
 
-          <div style={{
-            display: "flex", gap: "10px", alignItems: "flex-end",
-            background: "#111", border: "1px solid #252525", borderRadius: "10px",
-            padding: "10px 14px",
-          }}>
-            {currentUser.image && (
-              <img src={currentUser.image} alt="" style={{ width: "24px", height: "24px", borderRadius: "50%", flexShrink: 0, alignSelf: "flex-end", marginBottom: "3px" }} />
+          {/* Stage */}
+          <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"0 24px", position:"relative" }}>
+            <div style={{ textAlign:"center", marginBottom:36 }}>
+              <div style={{ fontFamily:T.mono, fontSize:isMobile?11:14, color:"#777", letterSpacing:"0.28em", marginBottom:14 }}>THE STAGE IS SET.</div>
+              <div style={{ fontFamily:T.sans, fontSize:isMobile?16:20, color:"#666" }}>Drop in an idea. Call an agent.</div>
+            </div>
+            <div style={{ width:"100%", maxWidth:520 }}>
+              <div style={{ background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:10, display:"flex", alignItems:"flex-end", padding:"12px 14px", gap:8 }}>
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                  placeholder={isMobile ? "What are you working on?" : "What are you working on? @ to call an agent…"}
+                  rows={2}
+                  style={{ flex:1, background:"none", border:"none", outline:"none", resize:"none", fontFamily:T.sans, fontSize:14, color:T.text, lineHeight:1.55 }}
+                />
+                <button onClick={send} style={{ background:T.bdr2, border:"none", borderRadius:6, width:30, height:30, cursor:"pointer", color:T.sub, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.mono, fontSize:14, flexShrink:0 }}>↑</button>
+              </div>
+            </div>
+            {isMobile && (
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:22, justifyContent:"center", padding:"0 8px" }}>
+                {AGENTS.map(a => (
+                  <button key={a.id} onClick={() => insertMention(a.id)} style={{
+                    background:a.color+"16", border:`1px solid ${a.color}44`, borderRadius:99,
+                    padding:"5px 12px", fontFamily:T.mono, fontSize:10, color:a.color, cursor:"pointer",
+                  }}>{a.icon} @{a.id}</button>
+                ))}
+              </div>
             )}
-            <textarea
-              ref={inputRef}
-              value={input}
-              disabled={readOnlyReview}
-              onChange={handleInput}
-              onKeyDown={onKeyDown}
-              placeholder="Describe what you want to write or build (type @ for a helper)..."
-              rows={1}
-              style={{
-                flex: 1, background: "none", border: "none", outline: "none",
-                color: "#e5e5e5", fontSize: "14px", lineHeight: "1.5",
-                maxHeight: "120px", overflow: "auto", paddingTop: "2px",
-                caretColor: "#60a5fa", resize: "none",
-              }}
-              onInput={(e: any) => {
-                e.target.style.height = "auto";
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
-              }}
-            />
-            <button
-              onClick={send}
-              disabled={readOnlyReview || !input.trim() || Object.keys(loading).length > 0 || postingMessage}
-              style={{
-                background: (postingMessage || Object.keys(loading).length > 0) ? "#1a1a1a" : "#1d3461",
-                border: `1px solid ${(postingMessage || Object.keys(loading).length > 0) ? "#222" : "#2d4f8a"}`,
-                color: (postingMessage || Object.keys(loading).length > 0) ? "#333" : "#60a5fa",
-                width: "34px", height: "34px", borderRadius: "7px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0, fontSize: "16px", cursor: "pointer",
-              }}
-            >
-              {(postingMessage || Object.keys(loading).length > 0) ? "·" : "↑"}
-            </button>
-          </div>
-          <div style={{ marginTop: "6px", fontSize: "10px", color: "#333", fontFamily: "var(--font-mono)", display: "flex", justifyContent: "space-between" }}>
-            <span>
-              {readOnlyReview
-                ? "Review mode is read-only. Token with write scope required for chat."
-                : postingMessage
-                  ? "Sending your message…"
-                  : "↵ send · shift+↵ newline · add @writer (or a chip) for an AI reply"}
-            </span>
-            <span>{messages.length} messages in session</span>
+            <div style={{ position:"absolute", bottom:28, fontFamily:T.mono, fontSize:8.5, color:T.sub, letterSpacing:"0.1em" }}>
+              {isMobile ? "RETURN TO SEND" : "ENTER TO SEND · SHIFT+ENTER FOR NEW LINE · ⌘K FOR COMMANDS"}
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {screen === "chat" && (
+        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+          {/* Messages */}
+          <div style={{ flex:1, overflowY:"auto", padding:"24px 24px 120px" }}>
+            <div style={{ maxWidth:720, margin:"0 auto" }}>
+              {messages.length === 0 && (
+                <div style={{ textAlign:"center", marginTop:80, fontFamily:T.mono, fontSize:11, color:T.meta, letterSpacing:"0.12em" }}>
+                  CONVERSATION CLEARED — START AGAIN BELOW
+                </div>
+              )}
+              {messages.map(msg => (
+                <div key={msg.id} className="msg-in">
+                  <MsgComponent msg={msg} onDelete={deleteMsg} />
+                </div>
+              ))}
+
+              {/* Typing indicators */}
+              {Object.keys(loading).map(pId => {
+                const a = getAgent(pId);
+                return (
+                  <div key={`typing-${pId}`} className="msg-in" style={{ marginBottom:28, display:"flex", gap:8, alignItems:"flex-start" }}>
+                    <div style={{ fontSize:15, color:a.color }}>{a.icon}</div>
+                    <div>
+                      <div style={{ fontFamily:T.mono, fontSize:9.5, color:a.color, marginBottom:8 }}>@{a.id}</div>
+                      <div style={{ background:a.color+"0a", border:`1px solid ${a.color}30`, borderLeft:`3px solid ${a.color}`, padding:"10px 14px", display:"inline-flex", gap:5 }}>
+                        {[0,1,2].map(i => <div key={i} style={{ width:5, height:5, borderRadius:"50%", background:a.color, animation:"bounce 1.2s ease-in-out infinite", animationDelay:`${i*0.2}s`, opacity:0.7 }} />)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={bottomRef} />
+            </div>
+          </div>
+
+          {/* Floating dock */}
+          {!isMobile && <FloatingDock onMention={insertMention} agentCtx={agentCtx} />}
+
+          {/* Input bar */}
+          <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:`linear-gradient(transparent, ${T.bg} 36%)`, padding:"28px 24px 20px" }}>
+            <div style={{ maxWidth:720, margin:"0 auto", display:"flex", gap:8, alignItems:"flex-end" }}>
+              <div style={{ flex:1, background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:10, display:"flex", alignItems:"flex-end", padding:"10px 14px", gap:8 }}>
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                  placeholder="Type your message… @ to mention an agent"
+                  rows={1}
+                  style={{ flex:1, background:"none", border:"none", outline:"none", resize:"none", fontFamily:T.sans, fontSize:14, color:T.text, lineHeight:1.55, maxHeight:120, overflowY:"auto" }}
+                  onInput={(e:any) => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,120)+"px"; }}
+                />
+                <button onClick={send} disabled={!input.trim() || Object.keys(loading).length > 0} style={{
+                  background: Object.keys(loading).length > 0 ? T.bdr : T.bdr2,
+                  border:"none", borderRadius:6, width:30, height:30, cursor:"pointer",
+                  color:T.sub, display:"flex", alignItems:"center", justifyContent:"center",
+                  fontFamily:T.mono, fontSize:14, flexShrink:0,
+                }}>↑</button>
+              </div>
+              {isMobile && (
+                <button onClick={() => setShowSheet(true)} style={{
+                  width:46, height:46, background:T.surf, border:`1px solid ${T.bdr2}`,
+                  borderRadius:10, fontFamily:T.mono, fontSize:18, color:T.sub,
+                  cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+                }}>@</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {screen === "roles" && (
+        <div style={{ flex:1, overflowY:"auto", padding:"36px 24px 60px" }}>
+          <div style={{ maxWidth:680, margin:"0 auto" }}>
+            <div style={{ fontFamily:T.sans, fontSize:13, color:T.sub, marginBottom:32, lineHeight:1.7, maxWidth:480 }}>
+              Add notes about yourself or your project for each agent. These appear in their hover card and inform every response.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              {AGENTS.map(a => (
+                <div key={a.id} style={{ background:T.surf, border:`1px solid ${T.bdr}`, borderLeft:`3px solid ${a.color}`, borderRadius:"0 8px 8px 0", padding:"18px 20px" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+                    <span style={{ fontSize:20, color:a.color }}>{a.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontFamily:T.mono, fontSize:11, color:a.color, marginBottom:3 }}>@{a.id}</div>
+                      <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>{a.role}</div>
+                    </div>
+                    <div style={{ fontFamily:T.sans, fontSize:11.5, color:a.color+"66", fontStyle:"italic" }}>{a.tagline}</div>
+                  </div>
+                  <textarea
+                    value={agentCtx[a.id] || ""}
+                    onChange={e => updateAgentCtx(a.id, e.target.value)}
+                    placeholder={
+                      a.id==="researcher" ? `e.g. "Focus on peer-reviewed sources. The project is about climate adaptation in coastal cities."` :
+                      a.id==="writer"     ? `e.g. "My writing voice is essayistic and first-person. Target reader is a policy professional."` :
+                      a.id==="editor"     ? `e.g. "House style: short paragraphs, no jargon, active voice. Under 800 words for drafts."` :
+                      a.id==="critic"     ? `e.g. "Be direct. Don't soften critique. I care most about logical consistency and evidence."` :
+                                            `e.g. "Final output is a 3,000 word feature pitch to editors at a major newspaper."`
+                    }
+                    rows={3}
+                    style={{ width:"100%", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:6, padding:"10px 12px", resize:"vertical", fontFamily:T.sans, fontSize:13, color:T.text, lineHeight:1.6, outline:"none" }}
+                  />
+                </div>
+              ))}
+            </div>
+            <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta, marginTop:24, letterSpacing:"0.1em" }}>
+              CHANGES SAVE AUTOMATICALLY
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modals ── */}
+      {modal === "command" && (
+        <CommandPalette
+          onClose={() => setModal(null)}
+          onScreen={(s) => setScreen(s)}
+          onClear={() => setModal("clear")}
+          onDemo={() => { loadDemo(); setModal(null); }}
+          onModal={setModal}
+        />
+      )}
+
+      {modal === "clear" && (
+        <ClearConfirm onConfirm={() => { clearConversation(); setModal(null); }} onCancel={() => setModal(null)} />
+      )}
+
+      {modal === "artifacts" && (
+        <FeatureModal title="ARTIFACTS — REFERENCE MATERIAL" onClose={() => setModal(null)}>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <p style={{ fontFamily:T.mono, fontSize:10, color:T.meta }}>Uploaded files are injected into every agent's context. Supported: .txt, .md, .json, .csv</p>
+            <input ref={fileRef} type="file" accept=".txt,.md,.json,.csv" onChange={handleFileUpload} style={{ display:"none" }} />
+            <button onClick={() => fileRef.current?.click()} disabled={uploadingArtifact} style={{ alignSelf:"flex-start", padding:"7px 14px", borderRadius:6, background:"#0d2240", border:"1px solid #4da8ff44", color:"#4da8ff", fontSize:12, cursor:"pointer", fontFamily:T.mono }}>
+              {uploadingArtifact ? "Uploading…" : "+ Upload file"}
+            </button>
+            {artifacts.length > 0 && (
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                {artifacts.map(a => (
+                  <div key={a.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"4px 10px", background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:6, fontSize:12 }}>
+                    <span style={{ color:T.meta, fontFamily:T.mono }}>{a.file_type}</span>
+                    <span style={{ color:T.text }}>{a.name}</span>
+                    <button onClick={() => deleteArtifact(a.id)} style={{ background:"none", border:"none", color:T.meta, cursor:"pointer", fontSize:14 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {artifacts.length === 0 && <p style={{ fontFamily:T.mono, fontSize:11, color:T.bdr2 }}>No artifacts yet.</p>}
+          </div>
+        </FeatureModal>
+      )}
+
+      {modal === "tone" && (
+        <FeatureModal title="SECTION TONE — SPOTIFY" onClose={() => setModal(null)}>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {tone && (
+              <div style={{ padding:"10px 14px", background:"#1a0530", border:"1px solid #c030ff30", borderRadius:8 }}>
+                <div style={{ fontSize:13, color:"#c030ff", marginBottom:4 }}>🎵 {tone.trackName} — {tone.artistName}</div>
+                <div style={{ fontSize:11, color:T.meta, marginBottom:8 }}>{tone.descriptor}</div>
+                <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                  {tone.moodTags.map((t: string) => <span key={t} style={{ fontSize:9, color:"#c030ff80", border:"1px solid #c030ff30", padding:"1px 6px", borderRadius:10, fontFamily:T.mono }}>{t}</span>)}
+                </div>
+                <button onClick={clearTone} style={{ marginTop:10, background:"none", border:"1px solid #2a0808", color:"#ff3d3d", padding:"4px 10px", borderRadius:5, fontSize:11, cursor:"pointer", fontFamily:T.mono }}>Clear tone</button>
+              </div>
+            )}
+            <input value={spotifyUrl} onChange={e => { setSpotifyUrl(e.target.value); setToneError(""); }} placeholder="https://open.spotify.com/track/…" style={inputStyle} />
+            {toneError && <p style={{ fontSize:11, color:"#ff3d3d" }}>{toneError}</p>}
+            <button onClick={applyTone} disabled={loadingTone || !spotifyUrl.trim()} style={{ alignSelf:"flex-start", padding:"7px 14px", borderRadius:6, background:"#0d2240", border:"1px solid #4da8ff44", color:"#4da8ff", fontSize:12, cursor:"pointer", fontFamily:T.mono }}>
+              {loadingTone ? "Analysing…" : "Set tone"}
+            </button>
+            <p style={{ fontFamily:T.mono, fontSize:10, color:T.meta }}>Requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in environment variables.</p>
+          </div>
+        </FeatureModal>
+      )}
+
+      {modal === "notebooklm" && (
+        <FeatureModal title="NOTEBOOKLM BRIDGE" onClose={() => setModal(null)}>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <p style={{ fontFamily:T.mono, fontSize:10, color:T.meta }}>Link your NotebookLM notebook. Export session as Lore Pack to import as a source.</p>
+            <input value={notebooklmUrl} onChange={e => setNotebooklmUrl(e.target.value)} placeholder="https://notebooklm.google.com/notebook/…" style={inputStyle} />
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={saveNotebooklm} disabled={savingNotebooklm} style={{ padding:"7px 14px", borderRadius:6, background:"#0d2240", border:"1px solid #4da8ff44", color:"#4da8ff", fontSize:12, cursor:"pointer", fontFamily:T.mono }}>
+                {savingNotebooklm ? "Saving…" : "Save URL"}
+              </button>
+              {room.notebooklm_url && <a href={room.notebooklm_url} target="_blank" rel="noopener noreferrer" style={{ padding:"7px 14px", borderRadius:6, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:12, textDecoration:"none", display:"flex", alignItems:"center" }}>Open →</a>}
+            </div>
+            <button onClick={() => window.open(`/api/rooms/${room.id}/export`, "_blank")} style={{ alignSelf:"flex-start", padding:"7px 16px", borderRadius:6, background:"#062b1e", border:"1px solid #0fe89830", color:"#0fe898", fontSize:12, cursor:"pointer", fontFamily:T.mono }}>
+              ↓ Export Lore Pack (.md)
+            </button>
+          </div>
+        </FeatureModal>
+      )}
+
+      {modal === "review" && (
+        <FeatureModal title="SHARE REVIEW LINK" onClose={() => setModal(null)}>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <p style={{ fontFamily:T.mono, fontSize:10, color:T.meta }}>Generates a read-only link to this session. No login required. Expires in 72 hours.</p>
+            {reviewLink ? (
+              <div style={{ display:"flex", gap:8 }}>
+                <div style={{ flex:1, padding:"8px 10px", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:6, fontFamily:T.mono, fontSize:11, color:T.sub, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                  {reviewLink}
+                </div>
+                <button onClick={copyReview} style={{ padding:"7px 14px", borderRadius:6, background: copied?"#062b1e":"none", border:`1px solid ${copied?"#0fe898":"#2a2a2a"}`, color: copied?"#0fe898":T.sub, fontSize:12, cursor:"pointer", fontFamily:T.mono }}>
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+            ) : (
+              <button onClick={generateReview} disabled={generatingReview} style={{ alignSelf:"flex-start", padding:"7px 14px", borderRadius:6, background:"#0d2240", border:"1px solid #4da8ff44", color:"#4da8ff", fontSize:12, cursor:"pointer", fontFamily:T.mono }}>
+                {generatingReview ? "Generating…" : "Generate review link"}
+              </button>
+            )}
+            <div style={{ borderTop:`1px solid ${T.bdr}`, paddingTop:12 }}>
+              <p style={{ fontFamily:T.mono, fontSize:10, color:T.meta, marginBottom:6 }}>ROOM INVITE CODE — for collaborators who can chat</p>
+              <div style={{ display:"flex", gap:8 }}>
+                <div style={{ flex:1, padding:"8px 10px", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:6, fontFamily:T.mono, fontSize:13, color:T.sub }}>{room.invite_code}</div>
+                <button onClick={() => navigator.clipboard.writeText(room.invite_code ?? "")} style={{ padding:"7px 12px", borderRadius:6, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:12, cursor:"pointer" }}>Copy</button>
+              </div>
+            </div>
+          </div>
+        </FeatureModal>
+      )}
+
+      {showSheet && <AgentBottomSheet onMention={insertMention} onClose={() => setShowSheet(false)} />}
     </div>
   );
 }
