@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Writers Room — Setup Guide</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0a; --surface: #111; --border: #1e1e1e; --border2: #2a2a2a;
+      --text: #e5e5e5; --muted: #888; --dim: #444;
+      --green: #34d399; --blue: #60a5fa; --yellow: #fbbf24;
+      --red: #f87171; --purple: #c084fc;
+      --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+      --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+    }
+    html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans); min-height: 100vh; }
+    a { color: var(--blue); }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 24px 40px;
+      display: flex; align-items: center; gap: 16px;
+      background: #0d0d0d;
+    }
+    .icons { display: flex; gap: 6px; }
+    .icons span { font-size: 15px; }
+    .logo { font-family: var(--font-mono); font-size: 13px; color: var(--muted); letter-spacing: 0.1em; }
+
+    main { max-width: 860px; margin: 0 auto; padding: 48px 40px; }
+
+    h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: var(--muted); font-size: 15px; margin-bottom: 48px; }
+
+    .steps { display: flex; flex-direction: column; gap: 16px; margin-bottom: 56px; }
+    .step {
+      display: flex; gap: 20px; align-items: flex-start;
+      padding: 20px 24px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 10px;
+      text-decoration: none; color: inherit;
+      transition: border-color 0.15s;
+    }
+    .step:hover { border-color: var(--border2); }
+    .step-num {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+      flex-shrink: 0;
+    }
+    .step-body { flex: 1; }
+    .step-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .step-desc { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .step-time { font-size: 11px; font-family: var(--font-mono); color: var(--dim); margin-top: 6px; }
+    .step-arrow { color: var(--border2); font-size: 18px; align-self: center; }
+
+    .stack-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;
+      margin-bottom: 48px;
+    }
+    .stack-card {
+      padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .stack-card .tech { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .stack-card .role { font-size: 12px; color: var(--muted); }
+
+    .agents { display: flex; flex-direction: column; gap: 10px; margin-bottom: 48px; }
+    .agent {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 16px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px;
+    }
+    .agent-icon {
+      width: 30px; height: 30px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .agent-handle { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; margin-bottom: 2px; }
+    .agent-desc { font-size: 12px; color: var(--muted); }
+
+    h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+
+    code {
+      font-family: var(--font-mono); font-size: 12px;
+      background: #161616; border: 1px solid var(--border);
+      padding: 2px 6px; border-radius: 4px; color: var(--green);
+    }
+    pre {
+      background: #0d0d0d; border: 1px solid var(--border);
+      border-radius: 8px; padding: 20px; overflow: auto;
+      font-family: var(--font-mono); font-size: 12px; line-height: 1.7;
+      color: #ccc; margin: 16px 0;
+    }
+    pre .comment { color: var(--dim); }
+    pre .key { color: var(--blue); }
+    pre .val { color: var(--green); }
+
+    footer {
+      border-top: 1px solid var(--border); padding: 24px 40px;
+      text-align: center; font-family: var(--font-mono);
+      font-size: 11px; color: var(--dim);
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<header>
+  <div class="icons">
+    <span style="color:#34d399">◈</span>
+    <span style="color:#60a5fa">✦</span>
+    <span style="color:#fbbf24">⌘</span>
+    <span style="color:#f87171">⚡</span>
+    <span style="color:#c084fc">◎</span>
+  </div>
+  <span class="logo">WRITERS ROOM — SETUP GUIDE</span>
+</header>
+
+<main>
+  <h1>Deploy your Writers Room</h1>
+  <p class="subtitle">Five steps from empty folder to live at <strong>writersroom.fredericlabadie.com</strong></p>
+
+  <div class="steps">
+    <a class="step" href="01-repo-setup.md">
+      <div class="step-num" style="background:#1e3a5f;color:#60a5fa;">01</div>
+      <div class="step-body">
+        <div class="step-title">Repo & Local Setup</div>
+        <div class="step-desc">Create the GitHub repo, install dependencies, set up your local environment file.</div>
+        <div class="step-time">~10 min</div>
+      </div>
+      <div class="step-arrow">→</div>
+    </a>
+
+    <a class="step" href="02-supabase-setup.md">
+      <div class="step-num" style="background:#064e3b;color:#34d399;">02</div>
+      <div class="step-body">
+        <div class="step-title">Supabase Setup</div>
+        <div class="step-desc">Create the Postgres database, run the schema (profiles, rooms, members, messages), get API keys.</div>
+        <div class="step-time">~10 min</div>
+      </div>
+      <div class="step-arrow">→</div>
+    </a>
+
+    <a class="step" href="03-oauth-setup.md">
+      <div class="step-num" style="background:#451a03;color:#fbbf24;">03</div>
+      <div class="step-body">
+        <div class="step-title">OAuth Setup</div>
+        <div class="step-desc">Create Google Cloud and GitHub OAuth apps. Configure callback URLs. Get your Anthropic API key.</div>
+        <div class="step-time">~15 min</div>
+      </div>
+      <div class="step-arrow">→</div>
+    </a>
+
+    <a class="step" href="04-vercel-deploy.md">
+      <div class="step-num" style="background:#1a0533;color:#c084fc;">04</div>
+      <div class="step-body">
+        <div class="step-title">Vercel Deploy</div>
+        <div class="step-desc">Import repo to Vercel, add all environment variables, deploy. Set up your custom domain in Vercel settings.</div>
+        <div class="step-time">~10 min</div>
+      </div>
+      <div class="step-arrow">→</div>
+    </a>
+
+    <a class="step" href="05-scaleway-dns.md">
+      <div class="step-num" style="background:#3b0a0a;color:#f87171;">05</div>
+      <div class="step-body">
+        <div class="step-title">Scaleway DNS</div>
+        <div class="step-desc">Add a CNAME record in your Scaleway DNS zone pointing writersroom → Vercel. Wait for propagation.</div>
+        <div class="step-time">~5 min + propagation</div>
+      </div>
+      <div class="step-arrow">→</div>
+    </a>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>Agents</h2>
+  <div class="agents">
+    <div class="agent">
+      <div class="agent-icon" style="background:#064e3b;border:1px solid #34d39940;color:#34d399;">◈</div>
+      <div><div class="agent-handle" style="color:#34d399;">@researcher</div><div class="agent-desc">Facts, context, source suggestions — grounds the room in reality</div></div>
+    </div>
+    <div class="agent">
+      <div class="agent-icon" style="background:#1e3a5f;border:1px solid #60a5fa40;color:#60a5fa;">✦</div>
+      <div><div class="agent-handle" style="color:#60a5fa;">@writer</div><div class="agent-desc">Drafts prose, develops narrative, finds the voice</div></div>
+    </div>
+    <div class="agent">
+      <div class="agent-icon" style="background:#451a03;border:1px solid #fbbf2440;color:#fbbf24;">⌘</div>
+      <div><div class="agent-handle" style="color:#fbbf24;">@editor</div><div class="agent-desc">Sharpens writing, shows ORIGINAL → REVISED, explains why</div></div>
+    </div>
+    <div class="agent">
+      <div class="agent-icon" style="background:#3b0a0a;border:1px solid #f8717140;color:#f87171;">⚡</div>
+      <div><div class="agent-handle" style="color:#f87171;">@critic</div><div class="agent-desc">Challenges assumptions, finds the weakest point, pushes harder</div></div>
+    </div>
+    <div class="agent">
+      <div class="agent-icon" style="background:#2d0a4e;border:1px solid #c084fc40;color:#c084fc;">◎</div>
+      <div><div class="agent-handle" style="color:#c084fc;">@director</div><div class="agent-desc">Synthesizes threads, gives the room a "Next move:" to act on</div></div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>Tech Stack</h2>
+  <div class="stack-grid">
+    <div class="stack-card"><div class="tech" style="color:#60a5fa;">Next.js 14</div><div class="role">Framework + API routes</div></div>
+    <div class="stack-card"><div class="tech" style="color:#34d399;">Supabase</div><div class="role">Postgres DB + auth helpers</div></div>
+    <div class="stack-card"><div class="tech" style="color:#fbbf24;">NextAuth v5</div><div class="role">Google + GitHub OAuth</div></div>
+    <div class="stack-card"><div class="tech" style="color:#f87171;">Anthropic</div><div class="role">claude-sonnet-4-5</div></div>
+    <div class="stack-card"><div class="tech" style="color:#c084fc;">Vercel</div><div class="role">Hosting + CI/CD</div></div>
+    <div class="stack-card"><div class="tech" style="color:#888;">Scaleway</div><div class="role">DNS for subdomain CNAME</div></div>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>Environment Variables Reference</h2>
+  <pre><span class="comment"># Anthropic</span>
+<span class="key">ANTHROPIC_API_KEY</span>=<span class="val">sk-ant-...</span>
+
+<span class="comment"># Supabase</span>
+<span class="key">NEXT_PUBLIC_SUPABASE_URL</span>=<span class="val">https://xxxx.supabase.co</span>
+<span class="key">NEXT_PUBLIC_SUPABASE_ANON_KEY</span>=<span class="val">eyJ...</span>
+<span class="key">SUPABASE_SERVICE_ROLE_KEY</span>=<span class="val">eyJ...</span>
+
+<span class="comment"># NextAuth</span>
+<span class="key">AUTH_SECRET</span>=<span class="val">generated-with-openssl-rand-base64-32</span>
+<span class="key">NEXTAUTH_URL</span>=<span class="val">https://writersroom.fredericlabadie.com</span>
+
+<span class="comment"># Google OAuth</span>
+<span class="key">AUTH_GOOGLE_ID</span>=<span class="val">xxxx.apps.googleusercontent.com</span>
+<span class="key">AUTH_GOOGLE_SECRET</span>=<span class="val">GOCSPX-...</span>
+
+<span class="comment"># GitHub OAuth</span>
+<span class="key">AUTH_GITHUB_ID</span>=<span class="val">xxxx</span>
+<span class="key">AUTH_GITHUB_SECRET</span>=<span class="val">xxxx</span></pre>
+
+  <hr class="divider" />
+
+  <h2>After you're live</h2>
+  <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px;">
+    Every <code>git push</code> to <code>main</code> auto-deploys to Vercel. To add collaborators,
+    share the invite code shown in any room's header. Private rooms are invite-only;
+    public rooms appear to all logged-in users.
+  </p>
+  <p style="color:var(--muted);font-size:14px;line-height:1.7;">
+    To add a new agent, add an entry to <code>lib/personas.ts</code> — no other changes needed.
+    The UI and API both read from that single source of truth.
+  </p>
+
+</main>
+
+<footer>
+  writers-room · fredericlabadie · deployed on vercel · dns via scaleway
+</footer>
+
+</body>
+</html>
