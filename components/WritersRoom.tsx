@@ -528,6 +528,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [agentVoices, setAgentVoices] = useState<Record<string, { persona: string|null; genre: string|null; career: string|null }>>({});
   const [directions, setDirections] = useState<string[]>([]);
   const [expandedPrompt, setExpandedPrompt] = useState<string | null>(null);
+  const [agentInspirations, setAgentInspirations] = useState<Record<string, string[]>>({});
+  const [inspirationInputs, setInspirationInputs] = useState<Record<string, string>>({});
 
   // Feature state
   const [artifacts, setArtifacts]   = useState<Artifact[]>([]);
@@ -586,6 +588,10 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     try {
       const savedDirs = localStorage.getItem(`wr-directions-${room.id}`);
       if (savedDirs) setDirections(JSON.parse(savedDirs));
+    } catch {}
+    try {
+      const savedInsp = localStorage.getItem(`wr-inspirations-${room.id}`);
+      if (savedInsp) setAgentInspirations(JSON.parse(savedInsp));
     } catch {}
 
     // Mobile detection
@@ -677,6 +683,23 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     try { localStorage.setItem(`wr-agent-voices-${room.id}`, JSON.stringify(next)); } catch {}
   };
 
+  // Inspirations — add/remove reference items per agent (max 13)
+  const addInspiration = (agentId: string, item: string) => {
+    const current = agentInspirations[agentId] ?? [];
+    if (!item.trim() || current.length >= 13) return;
+    const next = { ...agentInspirations, [agentId]: [...current, item.trim()] };
+    setAgentInspirations(next);
+    setInspirationInputs(prev => ({ ...prev, [agentId]: "" }));
+    try { localStorage.setItem(`wr-inspirations-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
+  const removeInspiration = (agentId: string, index: number) => {
+    const current = agentInspirations[agentId] ?? [];
+    const next = { ...agentInspirations, [agentId]: current.filter((_, i) => i !== index) };
+    setAgentInspirations(next);
+    try { localStorage.setItem(`wr-inspirations-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
   // Build the full composed system prompt for an agent (base + voice + context)
   const buildComposedPrompt = (agentId: string): string => {
     const persona = PERSONAS[agentId as PersonaId];
@@ -691,6 +714,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
       ].filter(Boolean);
       if (voiceParts.length) parts.push("\nVOICE SETTINGS:\n" + voiceParts.join(" "));
     }
+    const insp = agentInspirations[agentId];
+    if (insp?.length) parts.push("\nINSPIRATIONS:\n" + insp.map(i => `- ${i}`).join("\n"));
     const ctx = agentCtx[agentId];
     if (ctx?.trim()) parts.push("\nUSER CONTEXT:\n" + ctx.trim());
     return parts.join("\n");
@@ -784,6 +809,9 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
             roomId: room.id,
             history: historySnapshot,
             agentContext: [
+              agentInspirations[personaId]?.length
+                ? "INSPIRATIONS:\n" + agentInspirations[personaId].map((i: string) => `- ${i}`).join("\n")
+                : null,
               agentCtx[personaId] || null,
               (() => {
                 const v = agentVoices[personaId];
@@ -1284,6 +1312,78 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Inspirations */}
+                  <div style={{ borderTop:`1px solid ${T.bdr}`, marginTop:14, paddingTop:14 }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                      <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em" }}>
+                        INSPIRATIONS
+                      </span>
+                      <span style={{ fontFamily:T.mono, fontSize:8, color: (agentInspirations[a.id]?.length ?? 0) >= 13 ? "#ff3d3d" : "#333" }}>
+                        {agentInspirations[a.id]?.length ?? 0}/13
+                      </span>
+                    </div>
+
+                    {/* Existing tags */}
+                    {(agentInspirations[a.id]?.length ?? 0) > 0 && (
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:8 }}>
+                        {(agentInspirations[a.id] ?? []).map((item, idx) => (
+                          <div key={idx} style={{
+                            display:"flex", alignItems:"center", gap:4,
+                            padding:"3px 8px 3px 10px",
+                            background:a.color+"18", border:`1px solid ${a.color}44`,
+                            borderRadius:99, fontSize:11,
+                          }}>
+                            <span style={{ color:a.color+"cc", fontFamily:T.sans }}>{item}</span>
+                            <button
+                              onClick={() => removeInspiration(a.id, idx)}
+                              style={{ background:"none", border:"none", cursor:"pointer", color:a.color+"88", fontSize:12, lineHeight:1, padding:"0 2px" }}
+                            >×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add input */}
+                    {(agentInspirations[a.id]?.length ?? 0) < 13 && (
+                      <div style={{ display:"flex", gap:6 }}>
+                        <input
+                          value={inspirationInputs[a.id] ?? ""}
+                          onChange={e => setInspirationInputs(prev => ({ ...prev, [a.id]: e.target.value }))}
+                          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addInspiration(a.id, inspirationInputs[a.id] ?? ""); } }}
+                          placeholder={
+                            a.id === "researcher" ? "e.g. The Lancet, Wikipedia style, Feynman Technique" :
+                            a.id === "writer"     ? "e.g. The Great Gatsby, Joan Didion's essays" :
+                            a.id === "editor"     ? "e.g. The Elements of Style, On Writing Well" :
+                            a.id === "critic"     ? "e.g. Christopher Hitchens debates, NY Review of Books" :
+                                                    "e.g. This American Life, The New Yorker longform"
+                          }
+                          style={{
+                            flex:1, padding:"7px 10px", borderRadius:5,
+                            background:T.bg, border:`1px solid ${T.bdr2}`,
+                            color:T.text, fontFamily:T.sans, fontSize:12, outline:"none",
+                          }}
+                        />
+                        <button
+                          onClick={() => addInspiration(a.id, inspirationInputs[a.id] ?? "")}
+                          disabled={!(inspirationInputs[a.id]?.trim())}
+                          style={{
+                            padding:"7px 12px", borderRadius:5,
+                            background: inspirationInputs[a.id]?.trim() ? a.color+"22" : "none",
+                            border:`1px solid ${inspirationInputs[a.id]?.trim() ? a.color+"55" : T.bdr2}`,
+                            color: inspirationInputs[a.id]?.trim() ? a.color : T.meta,
+                            fontSize:11, cursor:"pointer", fontFamily:T.mono,
+                            transition:"all 0.15s",
+                          }}
+                        >+ add</button>
+                      </div>
+                    )}
+                    {(agentInspirations[a.id]?.length ?? 0) >= 13 && (
+                      <p style={{ fontFamily:T.mono, fontSize:9, color:"#ff3d3d88" }}>
+                        13 inspirations saved — remove one to add more.
+                      </p>
+                    )}
                   </div>
 
                   {/* Composed prompt preview + per-agent export */}
