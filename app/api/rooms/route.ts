@@ -1,25 +1,39 @@
-import { auth } from "@/lib/auth";
+import { assertWriteAllowed, getActorContext, unauthorizedResponse } from "@/lib/authz";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 
 // GET /api/rooms — list rooms the user belongs to
-export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(req: Request) {
+  const actor = await getActorContext(req);
+  if (!actor) return unauthorizedResponse();
 
   const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("room_members")
-    .select(`
-      role,
-      rooms (
-        id, name, description, is_private, owner_id, invite_code, created_at,
-        room_members (count)
-      )
-    `)
-    .eq("user_id", session.user.id)
-    .order("joined_at", { ascending: false });
+  let data: any[] | null = null;
+  let error: any = null;
+
+  if (actor.mode === "review") {
+    const out = await supabase
+      .from("rooms")
+      .select("id, name, description, is_private, owner_id, invite_code, created_at")
+      .order("created_at", { ascending: false });
+    error = out.error;
+    data = (out.data ?? []).map((room: any) => ({ role: "reviewer", rooms: room }));
+  } else {
+    const out = await supabase
+      .from("room_members")
+      .select(`
+        role,
+        rooms (
+          id, name, description, is_private, owner_id, invite_code, created_at,
+          room_members (count)
+        )
+      `)
+      .eq("user_id", actor.userId)
+      .order("joined_at", { ascending: false });
+    error = out.error;
+    data = out.data;
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
@@ -27,8 +41,10 @@ export async function GET() {
 
 // POST /api/rooms — create a new room
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = await getActorContext(req);
+  if (!actor) return unauthorizedResponse();
+  const writeError = assertWriteAllowed(actor);
+  if (writeError) return writeError;
 
   const { name, description, is_private } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
@@ -41,7 +57,7 @@ export async function POST(req: Request) {
     .insert({
       name: name.trim(),
       description: description?.trim() || null,
-      owner_id: session.user.id,
+      owner_id: actor.userId,
       is_private: !!is_private,
       invite_code: inviteCode,
     })
@@ -51,11 +67,13 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Add creator as owner member
-  await supabase.from("room_members").insert({
-    room_id: room.id,
-    user_id: session.user.id,
-    role: "owner",
-  });
+  if (actor.userId) {
+    await supabase.from("room_members").insert({
+      room_id: room.id,
+      user_id: actor.userId,
+      role: "owner",
+    });
+  }
 
   return NextResponse.json(room, { status: 201 });
 }

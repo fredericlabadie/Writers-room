@@ -1,4 +1,5 @@
-import { auth } from "@/lib/auth";
+import { assertWriteAllowed, getActorContext, unauthorizedResponse, verifyRoomAccess } from "@/lib/authz";
+import { retrieveRelevantChunks } from "@/lib/artifacts/retrieve";
 import { PERSONAS, buildContextString } from "@/lib/personas";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 import Anthropic from "@anthropic-ai/sdk";
@@ -10,7 +11,12 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const CONTEXT_TAIL_COUNT = 16;
 const EARLY_MESSAGE_PREVIEW_CHARS = 140;
 
-function buildPrompt(userMessage: string, history: Array<{ role: string; persona?: string; content: string; user_name?: string }>, personaName: string) {
+function buildPrompt(
+  userMessage: string,
+  history: Array<{ role: string; persona?: string; content: string; user_name?: string }>,
+  personaName: string,
+  artifactContext: string
+) {
   if (!history.length) {
     return `The user just said: "${userMessage}"\n\nRespond as ${personaName}.`;
   }
@@ -43,6 +49,10 @@ function buildPrompt(userMessage: string, history: Array<{ role: string; persona
     "",
     "---",
     "",
+    artifactContext ? `Artifact context:\n${artifactContext}` : "",
+    artifactContext ? "" : "",
+    "---",
+    "",
     `The user just said: "${userMessage}"`,
     "",
     `Respond as ${personaName}.`,
@@ -52,17 +62,17 @@ function buildPrompt(userMessage: string, history: Array<{ role: string; persona
 }
 
 export async function POST(req: Request) {
-  // Auth check — no session = 401
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await getActorContext(req);
+  if (!actor) return unauthorizedResponse();
+  const writeError = assertWriteAllowed(actor);
+  if (writeError) return writeError;
 
-  const { personaId, userMessage, roomId, history } = await req.json() as {
+  const { personaId, userMessage, roomId, history, selectedArtifactIds } = await req.json() as {
     personaId: PersonaId;
     userMessage: string;
     roomId: string;
     history: Array<{ role: string; persona?: string; content: string; user_name?: string }>;
+    selectedArtifactIds?: string[];
   };
 
   const persona = PERSONAS[personaId];
@@ -70,20 +80,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown persona" }, { status: 400 });
   }
 
-  // Verify user is a member of this room
   const supabase = createSupabaseServiceClient();
-  const { data: membership } = await supabase
-    .from("room_members")
-    .select("role")
-    .eq("room_id", roomId)
-    .eq("user_id", session.user.id)
-    .single();
-
-  if (!membership) {
+  const canAccess = await verifyRoomAccess(supabase, roomId, actor);
+  if (!canAccess) {
     return NextResponse.json({ error: "Not a member of this room" }, { status: 403 });
   }
 
-  const prompt = buildPrompt(userMessage, history, persona.name);
+  const retrieved = await retrieveRelevantChunks({
+    supabase,
+    roomId,
+    query: `${userMessage}\n${history.slice(-4).map((msg) => msg.content).join("\n")}`,
+    selectedArtifactIds,
+    limit: 6,
+    threshold: 0.14,
+  });
+
+  const artifactContext = retrieved
+    .map((chunk, i) => `[${i + 1}] ${chunk.citation.artifactName} (chunk ${chunk.citation.chunkIndex}, score ${chunk.citation.score})\n${chunk.content}`)
+    .join("\n\n");
+
+  const prompt = buildPrompt(userMessage, history, persona.name, artifactContext);
 
   try {
     const message = await anthropic.messages.create({
@@ -97,14 +113,16 @@ export async function POST(req: Request) {
     const text = message.content[0].type === "text" ? message.content[0].text : "";
 
     // Persist agent message to database
+    const citations = retrieved.map((item) => item.citation);
     await supabase.from("messages").insert({
       room_id: roomId,
       role: "agent",
       persona: personaId,
       content: text,
+      citations,
     });
 
-    return NextResponse.json({ text });
+    return NextResponse.json({ text, citations });
   } catch (err) {
     console.error("Anthropic error:", err);
     return NextResponse.json({ error: "Model call failed" }, { status: 500 });

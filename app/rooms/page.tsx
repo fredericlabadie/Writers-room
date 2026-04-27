@@ -9,6 +9,7 @@ export default function RoomsPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [reviewSession, setReviewSession] = useState<{ active: boolean; scope: { read: boolean; write: boolean } | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
@@ -16,7 +17,12 @@ export default function RoomsPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => { fetchRooms(); }, []);
+  useEffect(() => {
+    fetchRooms();
+    fetch("/api/review/session")
+      .then((r) => r.json())
+      .then((data) => setReviewSession(data));
+  }, []);
 
   async function fetchRooms() {
     setLoading(true);
@@ -63,6 +69,8 @@ export default function RoomsPage() {
     outline: "none",
   } as React.CSSProperties;
 
+  const readOnlyReview = !!reviewSession?.active && !reviewSession?.scope?.write;
+
   return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a", fontFamily: "var(--font-sans)" }}>
       {/* Header */}
@@ -85,32 +93,39 @@ export default function RoomsPage() {
           {session?.user?.image && (
             <img src={session.user.image} alt="" style={{ width: "28px", height: "28px", borderRadius: "50%", border: "1px solid #2a2a2a" }} />
           )}
-          <span style={{ fontSize: "13px", color: "#888" }}>{session?.user?.name}</span>
-          <button onClick={() => signOut()} style={{
-            background: "none", border: "1px solid #2a2a2a", color: "#555",
-            padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
-            fontFamily: "var(--font-mono)", letterSpacing: "0.08em",
-          }}>
-            SIGN OUT
-          </button>
+          <span style={{ fontSize: "13px", color: "#888" }}>{session?.user?.name ?? (reviewSession?.active ? "AI Reviewer" : "")}</span>
+          {!reviewSession?.active && (
+            <button onClick={() => signOut()} style={{
+              background: "none", border: "1px solid #2a2a2a", color: "#555",
+              padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
+              fontFamily: "var(--font-mono)", letterSpacing: "0.08em",
+            }}>
+              SIGN OUT
+            </button>
+          )}
         </div>
       </div>
 
       {/* Content */}
       <div style={{ maxWidth: "720px", margin: "0 auto", padding: "40px 32px" }}>
+        {reviewSession?.active && (
+          <div style={{ marginBottom: "16px", padding: "10px 12px", border: "1px solid #2a2a2a", borderRadius: "8px", fontSize: "12px", color: "#999" }}>
+            Review mode is active ({readOnlyReview ? "read-only" : "write-enabled"}).
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "32px" }}>
           <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#e5e5e5" }}>Your Rooms</h2>
           <div style={{ display: "flex", gap: "8px" }}>
             <button onClick={() => { setShowJoin(true); setShowCreate(false); }} style={{
               padding: "8px 16px", borderRadius: "7px", background: "#111",
               border: "1px solid #2a2a2a", color: "#888", fontSize: "13px",
-            }}>
+            }} disabled={readOnlyReview}>
               Join Room
             </button>
             <button onClick={() => { setShowCreate(true); setShowJoin(false); }} style={{
               padding: "8px 16px", borderRadius: "7px", background: "#1d3461",
               border: "1px solid #2d4f8a", color: "#60a5fa", fontSize: "13px",
-            }}>
+            }} disabled={readOnlyReview}>
               + New Room
             </button>
           </div>

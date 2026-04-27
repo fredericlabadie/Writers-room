@@ -12,9 +12,11 @@
     "@anthropic-ai/sdk": "^0.24.0",
     "@supabase/ssr": "^0.3.0",
     "@supabase/supabase-js": "^2.43.0",
-    "next": "14.2.3",
+    "mammoth": "^1.12.0",
     "nanoid": "^5.0.7",
+    "next": "14.2.3",
     "next-auth": "^5.0.0-beta.19",
+    "pdf-parse": "^2.4.5",
     "react": "^18",
     "react-dom": "^18"
   },

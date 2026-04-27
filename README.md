@@ -23,6 +23,8 @@ A collaborative AI writing space with multiple specialized agents. Mention agent
 - **Persistent history** — conversations saved to Supabase Postgres
 - **Role-tuned generation** — each agent uses different temperature and token budgets
 - **Auto-director synthesis** — when 2+ agents are mentioned, `@director` closes with a decision and next move
+- **Artifacts + RAG** — upload book bibles/docs/images and ground replies with citations
+- **AI review mode** — share signed, scoped review links with Claude/other AIs
 
 ## Stack
 
@@ -41,6 +43,7 @@ See the [`/docs`](./docs) folder:
 3. [OAuth Setup](./docs/03-oauth-setup.md)
 4. [Vercel Deploy](./docs/04-vercel-deploy.md)
 5. [Scaleway DNS](./docs/05-scaleway-dns.md)
+6. [Artifacts + RAG + Review Mode](./docs/06-artifacts-rag-review.md)
 
 Or open [`docs/index.html`](./docs/index.html) for a visual overview.
 

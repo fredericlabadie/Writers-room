@@ -21,6 +21,8 @@ export interface Message {
   role: "user" | "agent" | "system";
   persona?: PersonaId;
   content: string;
+  citations?: ArtifactCitation[];
+  artifact_ids?: string[];
   user_id?: string;
   user_name?: string;
   user_avatar?: string;
@@ -50,4 +52,26 @@ export interface Profile {
   name: string | null;
   avatar_url: string | null;
   created_at: string;
+}
+
+export interface Artifact {
+  id: string;
+  room_id: string;
+  uploaded_by: string | null;
+  name: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_path: string;
+  kind: "document" | "image";
+  parse_status: "pending" | "processing" | "ready" | "failed";
+  parse_error?: string | null;
+  created_at: string;
+}
+
+export interface ArtifactCitation {
+  artifactId: string;
+  artifactName: string;
+  chunkId: string;
+  chunkIndex: number;
+  score: number;
 }

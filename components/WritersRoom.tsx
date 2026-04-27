@@ -3,24 +3,32 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
-import type { Message, Room, PersonaId } from "@/types";
+import type { Artifact, Message, Room, PersonaId } from "@/types";
 
 interface Props {
   room: Room;
   currentUser: { id: string; name: string; image: string | null };
   userRole: "owner" | "member";
+  reviewScope?: { read: boolean; write: boolean } | null;
 }
 
-export default function WritersRoom({ room, currentUser, userRole }: Props) {
+export default function WritersRoom({ room, currentUser, userRole, reviewScope = null }: Props) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
+  const [showArtifacts, setShowArtifacts] = useState(false);
+  const [uploadingArtifact, setUploadingArtifact] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [mentionQuery, setMentionQuery] = useState<{ query: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [artifactError, setArtifactError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const artifactInputRef = useRef<HTMLInputElement>(null);
+  const readOnlyReview = !!reviewScope?.read && !reviewScope?.write;
 
   // Load message history
   useEffect(() => {
@@ -33,6 +41,12 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
           user_avatar: m.profiles?.avatar_url ?? null,
         })));
         setLoadingHistory(false);
+      });
+
+    fetch(`/api/artifacts?roomId=${room.id}`)
+      .then(r => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setArtifacts(data);
       });
   }, [room.id]);
 
@@ -67,9 +81,50 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
     inputRef.current.focus();
   };
 
+  const toggleArtifactSelection = (artifactId: string) => {
+    setSelectedArtifactIds((prev) => (
+      prev.includes(artifactId)
+        ? prev.filter((id) => id !== artifactId)
+        : [...prev, artifactId]
+    ));
+  };
+
+  const handleArtifactUpload = async (file?: File) => {
+    if (!file || readOnlyReview) return;
+    setUploadingArtifact(true);
+    setArtifactError("");
+    try {
+      const form = new FormData();
+      form.append("roomId", room.id);
+      form.append("file", file);
+      const res = await fetch("/api/artifacts/upload", {
+        method: "POST",
+        body: form,
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error ?? "Upload failed");
+      if (payload.artifact) {
+        setArtifacts((prev) => [payload.artifact, ...prev]);
+      }
+    } catch (err) {
+      setArtifactError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploadingArtifact(false);
+      if (artifactInputRef.current) artifactInputRef.current.value = "";
+    }
+  };
+
+  const deleteArtifact = async (artifactId: string) => {
+    if (readOnlyReview) return;
+    const res = await fetch(`/api/artifacts/${artifactId}`, { method: "DELETE" });
+    if (!res.ok) return;
+    setArtifacts((prev) => prev.filter((a) => a.id !== artifactId));
+    setSelectedArtifactIds((prev) => prev.filter((id) => id !== artifactId));
+  };
+
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || Object.keys(loading).length > 0) return;
+    if (readOnlyReview || !text || Object.keys(loading).length > 0) return;
     setInput("");
     setMentionQuery(null);
 
@@ -77,13 +132,14 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomId: room.id, content: text }),
+      body: JSON.stringify({ roomId: room.id, content: text, artifactIds: selectedArtifactIds }),
     });
     const saved = await res.json();
 
     const userMsg: Message = {
       ...saved,
       role: "user",
+      artifact_ids: selectedArtifactIds,
       user_name: currentUser.name,
       user_avatar: currentUser.image,
     };
@@ -121,14 +177,16 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
             userMessage: text,
             roomId: room.id,
             history: historySnapshot,
+            selectedArtifactIds,
           }),
         });
-        const { text: agentText } = await agentRes.json();
+        const { text: agentText, citations } = await agentRes.json();
         const agentMsg: Message = {
           id: `${Date.now()}-${personaId}`,
           role: "agent",
           persona: personaId as PersonaId,
           content: agentText,
+          citations: Array.isArray(citations) ? citations : [],
           created_at: now(),
         };
         setMessages(prev => [...prev, agentMsg]);
@@ -138,7 +196,7 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
       }
       setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
     }
-  }, [input, loading, messages, room.id, currentUser]);
+  }, [input, loading, messages, room.id, currentUser, selectedArtifactIds, readOnlyReview]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -169,6 +227,7 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
   const mentionOptions = PERSONA_LIST.filter(p =>
     !mentionQuery || p.handle.startsWith(mentionQuery.query.toLowerCase())
   );
+  const artifactNameMap = new Map(artifacts.map((a) => [a.id, a.name]));
 
   return (
     <div style={{
@@ -191,6 +250,18 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {reviewScope?.read && (
+            <span style={{ fontSize: "10px", color: readOnlyReview ? "#fbbf24" : "#34d399", fontFamily: "var(--font-mono)" }}>
+              REVIEW {readOnlyReview ? "READ-ONLY" : "WRITE"}
+            </span>
+          )}
+          <button onClick={() => setShowArtifacts((v) => !v)} style={{
+            background: "none", border: "1px solid #2a2a2a", color: showArtifacts ? "#60a5fa" : "#666",
+            padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
+            fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
+          }}>
+            {showArtifacts ? "HIDE FILES" : "FILES"}
+          </button>
           {room.invite_code && (
             <button onClick={copyInvite} style={{
               background: "none", border: "1px solid #2a2a2a", color: copied ? "#34d399" : "#555",
@@ -202,6 +273,84 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
           )}
         </div>
       </div>
+
+      {showArtifacts && (
+        <div style={{
+          padding: "12px 24px", borderBottom: "1px solid #1e1e1e", background: "#101010",
+          display: "flex", flexDirection: "column", gap: "10px",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "11px", color: "#888", fontFamily: "var(--font-mono)" }}>
+              ROOM ARTIFACTS ({artifacts.length})
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <input
+                ref={artifactInputRef}
+                type="file"
+                onChange={(e) => handleArtifactUpload(e.target.files?.[0])}
+                style={{ display: "none" }}
+              />
+              <button
+                onClick={() => artifactInputRef.current?.click()}
+                disabled={uploadingArtifact || readOnlyReview}
+                style={{
+                  background: "#1d3461",
+                  border: "1px solid #2d4f8a",
+                  color: "#60a5fa",
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  fontFamily: "var(--font-mono)",
+                  opacity: uploadingArtifact || readOnlyReview ? 0.6 : 1,
+                }}
+              >
+                {uploadingArtifact ? "UPLOADING..." : "UPLOAD"}
+              </button>
+            </div>
+          </div>
+          {artifactError && <div style={{ color: "#f87171", fontSize: "12px" }}>{artifactError}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "220px", overflow: "auto" }}>
+            {artifacts.map((artifact) => (
+              <div key={artifact.id} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: "#151515", border: "1px solid #252525", borderRadius: "8px", padding: "8px 10px",
+              }}>
+                <button
+                  onClick={() => toggleArtifactSelection(artifact.id)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: selectedArtifactIds.includes(artifact.id) ? "#60a5fa" : "#bbb",
+                    fontSize: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <span>{selectedArtifactIds.includes(artifact.id) ? "☑" : "☐"}</span>
+                  <span>{artifact.name}</span>
+                  <span style={{ color: artifact.parse_status === "ready" ? "#34d399" : "#777", fontSize: "10px", fontFamily: "var(--font-mono)" }}>
+                    {artifact.parse_status.toUpperCase()}
+                  </span>
+                </button>
+                {!readOnlyReview && (
+                  <button
+                    onClick={() => deleteArtifact(artifact.id)}
+                    style={{ background: "none", border: "1px solid #3a1d1d", color: "#f87171", borderRadius: "5px", fontSize: "10px", padding: "2px 6px" }}
+                  >
+                    DELETE
+                  </button>
+                )}
+              </div>
+            ))}
+            {!artifacts.length && (
+              <div style={{ color: "#666", fontSize: "12px" }}>No artifacts yet. Upload a book bible or supporting docs.</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Agent strip */}
       <div style={{
@@ -265,6 +414,25 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
                   <div style={{ fontSize: "14px", color: "#e5e5e5", lineHeight: "1.55", whiteSpace: "pre-wrap" }}>
                     {renderContent(msg.content)}
                   </div>
+                  {!!msg.artifact_ids?.length && (
+                    <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                      {msg.artifact_ids.map((artifactId) => (
+                        <span
+                          key={artifactId}
+                          style={{
+                            fontSize: "10px",
+                            color: "#60a5fa",
+                            border: "1px solid #2d4f8a",
+                            borderRadius: "999px",
+                            padding: "2px 6px",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          {artifactNameMap.get(artifactId) ?? "Artifact"}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div style={{ fontSize: "10px", color: "#444", marginTop: "4px", textAlign: isMe ? "right" : "left", fontFamily: "var(--font-mono)" }}>
                     {formatTime(msg.created_at)}
                   </div>
@@ -302,6 +470,26 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
                   }}>
                     {renderContent(msg.content)}
                   </div>
+                  {!!msg.citations?.length && (
+                    <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                      {msg.citations.map((citation) => (
+                        <span
+                          key={citation.chunkId}
+                          style={{
+                            fontSize: "10px",
+                            color: "#aaa",
+                            border: "1px solid #2a2a2a",
+                            borderRadius: "999px",
+                            padding: "2px 7px",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                          title={`score ${citation.score}`}
+                        >
+                          {citation.artifactName}#{citation.chunkIndex}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -391,6 +579,7 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
             <textarea
               ref={inputRef}
               value={input}
+              disabled={readOnlyReview}
               onChange={handleInput}
               onKeyDown={onKeyDown}
               placeholder="Type @ to call an agent..."
@@ -408,7 +597,7 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
             />
             <button
               onClick={send}
-              disabled={!input.trim() || Object.keys(loading).length > 0}
+              disabled={readOnlyReview || !input.trim() || Object.keys(loading).length > 0}
               style={{
                 background: Object.keys(loading).length > 0 ? "#1a1a1a" : "#1d3461",
                 border: `1px solid ${Object.keys(loading).length > 0 ? "#222" : "#2d4f8a"}`,
@@ -422,7 +611,11 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
             </button>
           </div>
           <div style={{ marginTop: "6px", fontSize: "10px", color: "#333", fontFamily: "var(--font-mono)", display: "flex", justifyContent: "space-between" }}>
-            <span>↵ send · shift+↵ newline · click agent chips above to add mention</span>
+            <span>
+              {readOnlyReview
+                ? "Review mode is read-only. Token with write scope required for chat."
+                : "↵ send · shift+↵ newline · click agent chips above to add mention"}
+            </span>
             <span>{messages.length} messages in session</span>
           </div>
         </div>

@@ -1,11 +1,16 @@
-import { auth } from "@/lib/auth";
+import { assertWriteAllowed, getActorContext, unauthorizedResponse } from "@/lib/authz";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 import { NextResponse } from "next/server";
 
 // POST /api/rooms/join — join via invite code
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = await getActorContext(req);
+  if (!actor) return unauthorizedResponse();
+  const writeError = assertWriteAllowed(actor);
+  if (writeError) return writeError;
+  if (!actor.userId) {
+    return NextResponse.json({ error: "Join is disabled for review-mode sessions" }, { status: 403 });
+  }
 
   const { invite_code } = await req.json();
   if (!invite_code) return NextResponse.json({ error: "Invite code required" }, { status: 400 });
@@ -22,7 +27,7 @@ export async function POST(req: Request) {
 
   // Upsert membership (safe if already a member)
   await supabase.from("room_members").upsert(
-    { room_id: room.id, user_id: session.user.id, role: "member" },
+    { room_id: room.id, user_id: actor.userId, role: "member" },
     { onConflict: "room_id,user_id" }
   );
 
