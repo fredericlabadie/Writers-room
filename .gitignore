@@ -17,6 +17,9 @@ out/
 # build
 dist/
 
+# local clone of portfolio site (not part of this repo)
+_portfolio/
+
 # misc
 .DS_Store
 *.pem
