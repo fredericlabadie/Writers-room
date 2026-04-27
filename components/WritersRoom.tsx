@@ -55,6 +55,27 @@ function DelBtn({ onClick }: { onClick: () => void }) {
   );
 }
 
+// Copy button — shows next to delete on hover
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button onClick={copy} title="Copy message" style={{
+      position:"absolute", top:6, right:34, zIndex:5,
+      background:T.surf2, border:`1px solid ${T.bdr2}`,
+      borderRadius:4, cursor:"pointer",
+      color: copied ? "#0fe898" : T.sub,
+      padding:"2px 7px", fontFamily:T.mono, fontSize:11, lineHeight:1.2,
+      transition:"color 0.2s",
+    }}>{copied ? "✓" : "⎘"}</button>
+  );
+}
+
 // User message
 function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
   const [hov, setHov] = useState(false);
@@ -62,6 +83,7 @@ function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) =
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ display:"flex", justifyContent:"flex-end", marginBottom:24, position:"relative" }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+      {hov && <CopyBtn text={msg.content} />}
       <div style={{
         maxWidth:"62%", background:T.surf, border:`1px solid ${T.bdr}`,
         borderRadius:8, padding:"10px 14px",
@@ -105,6 +127,7 @@ function AgentMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) 
         ...borders,
       }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+      {hov && <CopyBtn text={msg.content} />}
       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
         <span style={{ fontSize:15, color:a.color }}>{a.icon}</span>
         <span style={{ fontFamily:T.mono, fontSize:9.5, color:a.color, letterSpacing:"0.04em" }}>@{a.id}</span>
@@ -163,6 +186,7 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave }: {
         position:"relative",
       }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+      {hov && <CopyBtn text={msg.content} />}
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
         <span style={{ fontSize:18, color:a.color }}>◎</span>
         <span style={{ fontFamily:T.mono, fontSize:10, color:a.color, letterSpacing:"0.06em" }}>@director</span>
@@ -515,7 +539,10 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [copied, setCopied] = useState(false);
   const [rateLimitError, setRateLimitError] = useState<string | null>(null);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef   = useRef<HTMLDivElement>(null);
+  const scrollRef    = useRef<HTMLDivElement>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
   const fileRef   = useRef<HTMLInputElement>(null);
   // Track IDs added locally so Realtime subscription doesn't double-add them
@@ -612,9 +639,23 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  // Smart auto-scroll: only follow if already at bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    if (isAtBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      setUnreadCount(0);
+    } else {
+      // Count new agent messages as unread
+      setUnreadCount(prev => prev + 1);
+    }
+  }, [messages]);
+
+  // Always scroll on loading state change (typing indicator)
+  useEffect(() => {
+    if (isAtBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [loading]);
 
   function now() { return new Date().toISOString(); }
 
@@ -977,7 +1018,16 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
           <DirectionsPanel directions={directions} onRemove={removeDirection} />
 
           {/* Messages */}
-          <div style={{ flex:1, overflowY:"auto", padding:"24px 24px 120px" }}>
+          <div
+            ref={scrollRef}
+            onScroll={() => {
+              const el = scrollRef.current;
+              if (!el) return;
+              const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+              setIsAtBottom(nearBottom);
+              if (nearBottom) setUnreadCount(0);
+            }}
+            style={{ flex:1, overflowY:"auto", padding:"24px 24px 120px" }}>
             <div style={{ maxWidth:720, margin:"0 auto" }}>
               {messages.length === 0 && (
                 <div style={{ textAlign:"center", marginTop:80, fontFamily:T.mono, fontSize:11, color:T.meta, letterSpacing:"0.12em" }}>
@@ -1008,6 +1058,31 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
               <div ref={bottomRef} />
             </div>
           </div>
+
+          {/* New messages pill — shown when scrolled up */}
+          {!isAtBottom && unreadCount > 0 && (
+            <div
+              onClick={() => {
+                bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+                setIsAtBottom(true);
+                setUnreadCount(0);
+              }}
+              style={{
+                position:"absolute", bottom:100, left:"50%",
+                transform:"translateX(-50%)",
+                background:"#1d3461", border:"1px solid #4da8ff55",
+                borderRadius:20, padding:"6px 16px",
+                display:"flex", alignItems:"center", gap:6,
+                cursor:"pointer", zIndex:60,
+                boxShadow:"0 4px 20px rgba(0,0,0,0.6)",
+                animation:"fadeIn 0.2s ease",
+              }}
+            >
+              <span style={{ fontSize:11, color:"#4da8ff", fontFamily:T.mono }}>
+                ↓ {unreadCount} new {unreadCount === 1 ? "message" : "messages"}
+              </span>
+            </div>
+          )}
 
           {/* Floating dock */}
           {!isMobile && <FloatingDock onMention={insertMention} agentCtx={agentCtx} />}
