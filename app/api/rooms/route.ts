@@ -26,13 +26,30 @@ export async function GET(req: Request) {
         role,
         rooms (
           id, name, description, is_private, owner_id, invite_code, created_at,
-          room_members (count)
+          room_members (count),
+          messages ( created_at )
         )
       `)
       .eq("user_id", actor.userId)
       .order("joined_at", { ascending: false });
     error = out.error;
-    data = out.data;
+
+    // Attach last_message_at and message_count derived from the messages join
+    data = (out.data ?? []).map((entry: any) => {
+      const msgs: Array<{ created_at: string }> = entry.rooms?.messages ?? [];
+      const sorted = [...msgs].sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      return {
+        ...entry,
+        rooms: {
+          ...entry.rooms,
+          message_count: msgs.length,
+          last_message_at: sorted[0]?.created_at ?? null,
+          messages: undefined, // strip raw array before sending to client
+        },
+      };
+    });
   }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

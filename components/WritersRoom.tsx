@@ -367,20 +367,22 @@ function FloatingDock({ onMention, agentCtx }: { onMention: (id: AgentId) => voi
 }
 
 // Command palette
-function CommandPalette({ onClose, onScreen, onClear, onDemo, onModal }: {
+function CommandPalette({ onClose, onScreen, onClear, onDemo, onModal, onExport }: {
   onClose: () => void;
   onScreen: (s: Screen) => void;
   onClear: () => void;
   onDemo: () => void;
   onModal: (m: Modal) => void;
+  onExport: () => void;
 }) {
   const items = [
     { icon:"⚙",  label:"Configure roles",         sub:"add context for each agent",       fn: () => { onScreen("roles"); onClose(); } },
     { icon:"▶",  label:"Load demo conversation",   sub:"slow journalism example",           fn: () => { onDemo(); onClose(); } },
+    { icon:"⤴",  label:"Export session as .md",    sub:"download full chat log + artifacts", fn: () => { onExport(); onClose(); } },
     { icon:"◈",  label:"Manage artifacts",         sub:"upload reference files for RAG",    fn: () => { onModal("artifacts"); onClose(); } },
     { icon:"🎵", label:"Set section tone",         sub:"extract mood from Spotify track",   fn: () => { onModal("tone"); onClose(); } },
     { icon:"◎",  label:"NotebookLM bridge",        sub:"link notebook & export Lore Pack",  fn: () => { onModal("notebooklm"); onClose(); } },
-    { icon:"⤴",  label:"Share review link",        sub:"read-only link, expires in 72h",   fn: () => { onModal("review"); onClose(); } },
+    { icon:"⊡",  label:"Share review link",        sub:"read-only link, expires in 72h",   fn: () => { onModal("review"); onClose(); } },
     { icon:"⌫",  label:"Clear conversation",       sub:"delete all messages",               fn: () => { onClear(); onClose(); } },
   ];
 
@@ -933,6 +935,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
             {[
               { lbl:"⌘K", title:"Command palette (⌘K)", fn:() => setModal("command") },
               { lbl:"⚙",  title:"Configure roles",      fn:() => setScreen("roles")  },
+              { lbl:"⤴",  title:"Export session (.md)",  fn:() => window.open(`/api/rooms/${room.id}/export`, "_blank") },
               { lbl:"⌫",  title:"Clear conversation",   fn:() => setModal("clear")   },
             ].map(b => (
               <button key={b.lbl} onClick={b.fn} title={b.title} style={{
@@ -1257,6 +1260,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
           onClear={() => setModal("clear")}
           onDemo={() => { loadDemo(); setModal(null); }}
           onModal={setModal}
+          onExport={() => window.open(`/api/rooms/${room.id}/export`, "_blank")}
         />
       )}
 
