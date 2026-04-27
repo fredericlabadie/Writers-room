@@ -1084,34 +1084,82 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                     rows={3}
                     style={{ width:"100%", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:6, padding:"10px 12px", resize:"vertical", fontFamily:T.sans, fontSize:13, color:T.text, lineHeight:1.6, outline:"none" }}
                   />
-                  {/* Voice picker */}
+                  {/* Voice picker — dropdowns with custom write-in */}
                   <div style={{ borderTop:`1px solid ${T.bdr}`, paddingTop:14, marginTop:4 }}>
                     {(["persona","genre","career"] as const).map(cat => {
-                      const opts: Record<string, string[]> = {
+                      const OPTS: Record<string, string[]> = {
                         persona: ["Christopher Hitchens","Joan Didion","David Foster Wallace","Zadie Smith","Malcolm Gladwell","Ta-Nehisi Coates","Hunter S. Thompson","Susan Sontag","George Orwell","Toni Morrison"],
                         genre:   ["Literary Journalism","Academic","Investigative","Gonzo","Business","Technical","Op-Ed","Lyric Essay","Narrative Non-fiction","Satire"],
                         career:  ["Investigative Reporter","Brand Strategist","Senior Editor","Academic Researcher","Ghostwriter","Film Critic","Science Journalist","Cultural Critic","Political Analyst","Copywriter"],
                       };
-                      const labels: Record<string, string> = { persona:"PERSONA — write like", genre:"GENRE — style", career:"CAREER — perspective" };
-                      const selected = agentVoices[a.id]?.[cat] ?? null;
+                      const LABELS: Record<string, string> = {
+                        persona: "PERSONA — write like",
+                        genre:   "GENRE — style",
+                        career:  "CAREER — perspective",
+                      };
+                      const stored = agentVoices[a.id]?.[cat] ?? null;
+                      const isPredefined = stored !== null && OPTS[cat].includes(stored);
+                      const isCustom = stored !== null && !isPredefined;
+                      // dropdown value: predefined option, "__custom__" if custom, or "" for none
+                      const dropdownValue = isPredefined ? stored : isCustom ? "__custom__" : "";
+
+                      const selectStyle: React.CSSProperties = {
+                        width:"100%", padding:"7px 10px", borderRadius:5,
+                        background:T.bg, border:`1px solid ${stored ? a.color+"55" : T.bdr2}`,
+                        color: stored ? a.color : T.sub,
+                        fontFamily:T.sans, fontSize:12, outline:"none",
+                        cursor:"pointer", appearance:"none" as any,
+                        backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                        backgroundRepeat:"no-repeat",
+                        backgroundPosition:"right 10px center",
+                        paddingRight:28,
+                      };
+
                       return (
-                        <div key={cat} style={{ marginBottom:10 }}>
-                          <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em", marginBottom:6 }}>{labels[cat]}</div>
-                          <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-                            {opts[cat].map(opt => {
-                              const isSelected = selected === opt;
-                              return (
-                                <button key={opt} onClick={() => updateAgentVoice(a.id, cat, isSelected ? null : opt)} style={{
-                                  background: isSelected ? a.color+"22" : "transparent",
-                                  border: `1px solid ${isSelected ? a.color+"88" : T.bdr2}`,
-                                  borderRadius:4, padding:"4px 10px",
-                                  fontFamily:T.sans, fontSize:11.5,
-                                  color: isSelected ? a.color : T.sub,
-                                  cursor:"pointer", transition:"all 0.15s",
-                                }}>{opt}</button>
-                              );
-                            })}
+                        <div key={cat} style={{ marginBottom:12 }}>
+                          <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em", marginBottom:5 }}>
+                            {LABELS[cat]}
                           </div>
+
+                          {/* Dropdown */}
+                          <select
+                            value={dropdownValue}
+                            onChange={e => {
+                              const v = e.target.value;
+                              if (v === "") updateAgentVoice(a.id, cat, null);
+                              else if (v === "__custom__") updateAgentVoice(a.id, cat, "");
+                              else updateAgentVoice(a.id, cat, v);
+                            }}
+                            style={selectStyle}
+                          >
+                            <option value="">— none —</option>
+                            {OPTS[cat].map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                            <option value="__custom__">Custom…</option>
+                          </select>
+
+                          {/* Custom write-in — shown when Custom… is selected */}
+                          {(dropdownValue === "__custom__" || isCustom) && (
+                            <input
+                              type="text"
+                              value={stored ?? ""}
+                              onChange={e => updateAgentVoice(a.id, cat, e.target.value || null)}
+                              placeholder={
+                                cat === "persona" ? "e.g. Ernest Hemingway" :
+                                cat === "genre"   ? "e.g. Travel writing" :
+                                                    "e.g. Food writer"
+                              }
+                              autoFocus
+                              style={{
+                                marginTop:6, width:"100%", padding:"7px 10px",
+                                borderRadius:5, background:T.bg,
+                                border:`1px solid ${a.color+"55"}`,
+                                color:a.color, fontFamily:T.sans, fontSize:12,
+                                outline:"none",
+                              }}
+                            />
+                          )}
                         </div>
                       );
                     })}
