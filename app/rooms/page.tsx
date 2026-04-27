@@ -186,13 +186,14 @@ export default function RoomsPage() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {rooms.map(room => (
-              <div
+              <button
                 key={room.id}
                 onClick={() => router.push(`/rooms/${room.id}`)}
                 style={{
                   padding: "18px 20px", background: "#111", border: "1px solid #1e1e1e",
                   borderRadius: "10px", cursor: "pointer", transition: "border-color 0.15s",
                   display: "flex", alignItems: "center", justifyContent: "space-between",
+                  width: "100%", textAlign: "left",
                 }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = "#2a2a2a")}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = "#1e1e1e")}
@@ -205,7 +206,7 @@ export default function RoomsPage() {
                   {room.description && <div style={{ fontSize: "12px", color: "#666" }}>{room.description}</div>}
                 </div>
                 <span style={{ color: "#2a2a2a", fontSize: "18px" }}>→</span>
-              </div>
+              </button>
             ))}
           </div>
         )}

@@ -54,6 +54,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("room_wide");
   const [retrievalTopK, setRetrievalTopK] = useState(6);
   const [retrievalThreshold, setRetrievalThreshold] = useState(0.14);
+  const [showRetrievalSettings, setShowRetrievalSettings] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [uploadingArtifact, setUploadingArtifact] = useState(false);
   const [loadingChunksArtifactId, setLoadingChunksArtifactId] = useState<string | null>(null);
@@ -103,6 +104,16 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   function formatTime(iso: string) {
     return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
+
+  const pushSystemMessage = (text: string) => {
+    const sysMsg: Message = {
+      id: `system-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      role: "system",
+      content: text,
+      created_at: now(),
+    };
+    setMessages((prev) => [...prev, sysMsg]);
+  };
 
   const downloadFile = async (file: GeneratedFile, format: "native" | "xlsx" = "native") => {
     try {
@@ -155,6 +166,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   };
 
   const toggleArtifactSelection = (artifactId: string) => {
+    if (retrievalMode !== "selected_only") return;
     setSelectedArtifactIds((prev) => (
       prev.includes(artifactId)
         ? prev.filter((id) => id !== artifactId)
@@ -259,6 +271,10 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roomId: room.id, content: text, artifactIds: selectedArtifactIds }),
     });
+    if (!res.ok) {
+      pushSystemMessage("Failed to save your message. Please retry.");
+      return;
+    }
     const saved = await res.json();
 
     const userMsg: Message = {
@@ -310,7 +326,11 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             },
           }),
         });
-        const { text: agentText, citations, retrieval } = await agentRes.json();
+        const payload = await agentRes.json();
+        if (!agentRes.ok) {
+          throw new Error(payload.error ?? "Agent request failed");
+        }
+        const { text: agentText, citations, retrieval } = payload;
         const agentMsg: Message = {
           id: `${Date.now()}-${personaId}`,
           role: "agent",
@@ -323,7 +343,8 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
         setMessages(prev => [...prev, agentMsg]);
         historySnapshot.push({ role: "agent", persona: personaId, content: agentText, user_name: undefined });
       } catch {
-        // silently skip failed agents
+        const label = PERSONAS[personaId as PersonaId]?.name ?? personaId;
+        pushSystemMessage(`${label} failed to respond. You can try again.`);
       }
       setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
     }
@@ -455,6 +476,11 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
               Chunk preview, re-index, and delete are owner-only actions.
             </div>
           )}
+          {retrievalMode !== "selected_only" && (
+            <div style={{ color: "#777", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
+              Artifact selection applies only in selected-only retrieval mode.
+            </div>
+          )}
           {artifactError && <div style={{ color: "#f87171", fontSize: "12px" }}>{artifactError}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "220px", overflow: "auto" }}>
             {artifacts.map((artifact) => (
@@ -465,6 +491,8 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
                   <button
                     onClick={() => toggleArtifactSelection(artifact.id)}
+                    disabled={retrievalMode !== "selected_only"}
+                    title={retrievalMode === "selected_only" ? "Select for retrieval" : "Switch retrieval mode to selected-only"}
                     style={{
                       background: "none",
                       border: "none",
@@ -473,8 +501,9 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                       display: "flex",
                       alignItems: "center",
                       gap: "8px",
-                      cursor: "pointer",
+                      cursor: retrievalMode === "selected_only" ? "pointer" : "not-allowed",
                       textAlign: "left",
+                      opacity: retrievalMode === "selected_only" ? 1 : 0.65,
                     }}
                   >
                     <span>{selectedArtifactIds.includes(artifact.id) ? "☑" : "☐"}</span>
@@ -483,56 +512,58 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                       {artifact.parse_status.toUpperCase()}
                     </span>
                   </button>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <button
-                      onClick={() => loadArtifactChunks(artifact.id)}
-                      disabled={!ownerCanMaintainArtifacts || loadingChunksArtifactId === artifact.id}
-                      title={ownerCanMaintainArtifacts ? "Preview indexed chunks" : "Owner only"}
-                      style={{
-                        background: "none",
-                        border: "1px solid #2a2a2a",
-                        color: "#aaa",
-                        borderRadius: "5px",
-                        fontSize: "10px",
-                        padding: "2px 6px",
-                        opacity: !ownerCanMaintainArtifacts ? 0.45 : 1,
-                      }}
-                    >
-                      {loadingChunksArtifactId === artifact.id ? "LOADING..." : openChunksArtifactId === artifact.id ? "HIDE CHUNKS" : "CHUNKS"}
-                    </button>
-                    <button
-                      onClick={() => reindexArtifact(artifact.id)}
-                      disabled={!ownerCanMaintainArtifacts || reindexingArtifactId === artifact.id}
-                      title={ownerCanMaintainArtifacts ? "Re-run parsing and indexing" : "Owner only"}
-                      style={{
-                        background: "none",
-                        border: "1px solid #2d4f8a",
-                        color: "#60a5fa",
-                        borderRadius: "5px",
-                        fontSize: "10px",
-                        padding: "2px 6px",
-                        opacity: !ownerCanMaintainArtifacts ? 0.45 : 1,
-                      }}
-                    >
-                      {reindexingArtifactId === artifact.id ? "REINDEXING..." : "REINDEX"}
-                    </button>
-                    <button
-                      onClick={() => deleteArtifact(artifact.id)}
-                      disabled={!ownerCanMaintainArtifacts}
-                      title={ownerCanMaintainArtifacts ? "Delete artifact and chunks" : "Owner only"}
-                      style={{
-                        background: "none",
-                        border: "1px solid #3a1d1d",
-                        color: "#f87171",
-                        borderRadius: "5px",
-                        fontSize: "10px",
-                        padding: "2px 6px",
-                        opacity: !ownerCanMaintainArtifacts ? 0.45 : 1,
-                      }}
-                    >
-                      DELETE
-                    </button>
-                  </div>
+                  {ownerCanMaintainArtifacts ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <button
+                        onClick={() => loadArtifactChunks(artifact.id)}
+                        disabled={loadingChunksArtifactId === artifact.id}
+                        title="Preview indexed chunks"
+                        style={{
+                          background: "none",
+                          border: "1px solid #2a2a2a",
+                          color: "#aaa",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          padding: "2px 6px",
+                        }}
+                      >
+                        {loadingChunksArtifactId === artifact.id ? "LOADING..." : openChunksArtifactId === artifact.id ? "HIDE CHUNKS" : "CHUNKS"}
+                      </button>
+                      <button
+                        onClick={() => reindexArtifact(artifact.id)}
+                        disabled={reindexingArtifactId === artifact.id}
+                        title="Re-run parsing and indexing"
+                        style={{
+                          background: "none",
+                          border: "1px solid #2d4f8a",
+                          color: "#60a5fa",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          padding: "2px 6px",
+                        }}
+                      >
+                        {reindexingArtifactId === artifact.id ? "REINDEXING..." : "REINDEX"}
+                      </button>
+                      <button
+                        onClick={() => deleteArtifact(artifact.id)}
+                        title="Delete artifact and chunks"
+                        style={{
+                          background: "none",
+                          border: "1px solid #3a1d1d",
+                          color: "#f87171",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          padding: "2px 6px",
+                        }}
+                      >
+                        DELETE
+                      </button>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: "10px", color: "#777", fontFamily: "var(--font-mono)" }}>
+                      OWNER TOOLS
+                    </span>
+                  )}
                 </div>
                 {openChunksArtifactId === artifact.id && (
                   <div style={{ borderTop: "1px solid #222", paddingTop: "6px", display: "flex", flexDirection: "column", gap: "5px", maxHeight: "170px", overflow: "auto" }}>
@@ -762,6 +793,25 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             );
           }
 
+          if (msg.role === "system") {
+            return (
+              <div key={msg.id} style={{ display: "flex", justifyContent: "center" }}>
+                <div style={{
+                  maxWidth: "70%",
+                  background: "#1a1208",
+                  border: "1px solid #3a2a12",
+                  color: "#fbbf24",
+                  borderRadius: "8px",
+                  padding: "8px 12px",
+                  fontSize: "12px",
+                  fontFamily: "var(--font-mono)",
+                }}>
+                  {msg.content}
+                </div>
+              </div>
+            );
+          }
+
           return null;
         })}
 
@@ -816,6 +866,20 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             fontFamily: "var(--font-mono)",
           }}>
             <span>Retrieval</span>
+            <button
+              onClick={() => setShowRetrievalSettings((v) => !v)}
+              style={{
+                background: "none",
+                border: "1px solid #2a2a2a",
+                color: "#aaa",
+                borderRadius: "5px",
+                fontSize: "10px",
+                padding: "2px 6px",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {showRetrievalSettings ? "HIDE SETTINGS" : "ADVANCED"}
+            </button>
             <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <span>Mode</span>
               <select
@@ -828,31 +892,35 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                 <option value="selected_only">selected-only</option>
               </select>
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span>TopK</span>
-              <input
-                type="number"
-                min={1}
-                max={12}
-                value={retrievalTopK}
-                disabled={readOnlyReview}
-                onChange={(e) => setRetrievalTopK(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
-                style={{ width: "54px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
-              />
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span>Threshold</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                disabled={readOnlyReview}
-                value={retrievalThreshold}
-                onChange={(e) => setRetrievalThreshold(Number(e.target.value))}
-              />
-              <span>{retrievalThreshold.toFixed(2)}</span>
-            </label>
+            {showRetrievalSettings && (
+              <>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span>TopK</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={retrievalTopK}
+                    disabled={readOnlyReview}
+                    onChange={(e) => setRetrievalTopK(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                    style={{ width: "54px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
+                  />
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span>Threshold</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    disabled={readOnlyReview}
+                    value={retrievalThreshold}
+                    onChange={(e) => setRetrievalThreshold(Number(e.target.value))}
+                  />
+                  <span>{retrievalThreshold.toFixed(2)}</span>
+                </label>
+              </>
+            )}
             {retrievalMode === "selected_only" && selectedArtifactIds.length === 0 && (
               <span style={{ color: "#fbbf24" }}>Select at least one artifact</span>
             )}
