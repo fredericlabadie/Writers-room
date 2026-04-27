@@ -76,6 +76,58 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
+// Reaction bar — three emoji, shown on hover for agent messages
+const REACTIONS = ["👍", "💡", "⭐"] as const;
+type Emoji = typeof REACTIONS[number];
+
+function ReactBar({ msgId, active, onReact }: {
+  msgId: string;
+  active: string[];
+  onReact: (msgId: string, emoji: string) => void;
+}) {
+  return (
+    <div style={{ display:"flex", gap:4, marginTop:10 }}>
+      {REACTIONS.map(emoji => {
+        const isActive = active.includes(emoji);
+        return (
+          <button
+            key={emoji}
+            onClick={() => onReact(msgId, emoji)}
+            title={emoji === "⭐" ? "Save as direction" : undefined}
+            style={{
+              background: isActive ? "rgba(255,255,255,0.08)" : "none",
+              border: `1px solid ${isActive ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.06)"}`,
+              borderRadius:6, padding:"3px 8px",
+              fontSize:13, cursor:"pointer",
+              opacity: isActive ? 1 : 0.45,
+              transition:"all 0.15s",
+            }}
+          >{emoji}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Reaction badges — always-visible when any reactions active
+function ReactBadges({ active }: { active: string[] }) {
+  if (!active.length) return null;
+  const counts: Record<string, number> = {};
+  active.forEach(e => { counts[e] = (counts[e] ?? 0) + 1; });
+  return (
+    <div style={{ display:"flex", gap:4, marginTop:8 }}>
+      {Object.entries(counts).map(([emoji, count]) => (
+        <span key={emoji} style={{
+          fontSize:11, padding:"2px 7px",
+          background:"rgba(255,255,255,0.05)",
+          border:"1px solid rgba(255,255,255,0.1)",
+          borderRadius:99, color:"rgba(255,255,255,0.6)",
+        }}>{emoji} {count > 1 ? count : ""}</span>
+      ))}
+    </div>
+  );
+}
+
 // User message
 function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
   const [hov, setHov] = useState(false);
@@ -91,16 +143,23 @@ function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) =
         whiteSpace:"pre-wrap",
       }}>
         {msg.content}
-        <div style={{ fontSize:10, color:T.meta, marginTop:4, textAlign:"right", fontFamily:T.mono }}>
-          {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
-        </div>
+        {hov && (
+          <div style={{ fontSize:10, color:T.meta, marginTop:4, textAlign:"right", fontFamily:T.mono }}>
+            {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // Agent message — unique treatment per role
-function AgentMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
+function AgentMessage({ msg, onDelete, reactions, onReact }: {
+  msg: Message;
+  onDelete: (id: string) => void;
+  reactions: string[];
+  onReact: (msgId: string, emoji: string) => void;
+}) {
   const [hov, setHov] = useState(false);
   const a = getAgent(msg.persona!);
   const isCritic   = msg.persona === "critic";
@@ -135,9 +194,9 @@ function AgentMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) 
           {isResearch?"RESEARCH":isWriter?"DRAFT":isEditor?"EDIT":isCritic?"CHALLENGE":""}
         </span>
         {isCritic && <span style={{ fontFamily:T.mono, fontSize:8, color:"#ff3d3d88", marginLeft:"auto", paddingRight:28 }}>dissent</span>}
-        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>
+        {hov && <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>
           {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
-        </span>
+        </span>}
       </div>
       <div style={{
         fontFamily:T.sans,
@@ -154,6 +213,8 @@ function AgentMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) 
       {isWriter && (
         <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginTop:10 }}>draft</div>
       )}
+      <ReactBadges active={reactions} />
+      {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
     </div>
   );
 }
@@ -165,6 +226,8 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave }: {
   onSave: (text: string) => void;
   onContinue: (text: string) => void;
   canSave: boolean;
+  reactions: string[];
+  onReact: (msgId: string, emoji: string) => void;
 }) {
   const [hov, setHov]   = useState(false);
   const [saved, setSaved] = useState(false);
@@ -192,9 +255,9 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave }: {
         <span style={{ fontFamily:T.mono, fontSize:10, color:a.color, letterSpacing:"0.06em" }}>@director</span>
         <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:6 }}>SYNTHESIS</span>
         <div style={{ flex:1, height:1, background:a.color+"16", marginLeft:8 }} />
-        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>
+        {hov && <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>
           {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
-        </span>
+        </span>}
       </div>
       <div style={{ fontFamily:T.sans, fontSize:16, lineHeight:1.95, color:"#e8e8e8", maxWidth:640, whiteSpace:"pre-wrap" }}>
         {msg.content}
@@ -223,21 +286,25 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave }: {
           }}
         >continue</button>
       </div>
+      <ReactBadges active={reactions} />
+      {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
     </div>
   );
 }
 
 // Message router
-function MsgComponent({ msg, onDelete, onSave, onContinue, canSave }: {
+function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact }: {
   msg: Message;
   onDelete: (id: string) => void;
   onSave: (text: string) => void;
   onContinue: (text: string) => void;
   canSave: boolean;
+  reactions: string[];
+  onReact: (msgId: string, emoji: string) => void;
 }) {
   if (msg.role === "user") return <UserMessage msg={msg} onDelete={onDelete} />;
-  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} />;
-  if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} />;
+  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} reactions={reactions} onReact={onReact} />;
+  if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} reactions={reactions} onReact={onReact} />;
   return null;
 }
 
@@ -528,6 +595,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [agentVoices, setAgentVoices] = useState<Record<string, { persona: string|null; genre: string|null; career: string|null }>>({});
   const [directions, setDirections] = useState<string[]>([]);
   const [expandedPrompt, setExpandedPrompt] = useState<string | null>(null);
+  const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
   const [agentInspirations, setAgentInspirations] = useState<Record<string, string[]>>({});
   const [inspirationInputs, setInspirationInputs] = useState<Record<string, string>>({});
 
@@ -592,6 +660,10 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     try {
       const savedInsp = localStorage.getItem(`wr-inspirations-${room.id}`);
       if (savedInsp) setAgentInspirations(JSON.parse(savedInsp));
+    } catch {}
+    try {
+      const savedReacts = localStorage.getItem(`wr-reactions-${room.id}`);
+      if (savedReacts) setMessageReactions(JSON.parse(savedReacts));
     } catch {}
 
     // Mobile detection
@@ -698,6 +770,24 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     const next = { ...agentInspirations, [agentId]: current.filter((_, i) => i !== index) };
     setAgentInspirations(next);
     try { localStorage.setItem(`wr-inspirations-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
+  // Toggle a reaction on a message; ⭐ also saves to directions
+  const toggleReaction = (msgId: string, emoji: string) => {
+    const current = messageReactions[msgId] ?? [];
+    const isActive = current.includes(emoji);
+    const next = {
+      ...messageReactions,
+      [msgId]: isActive ? current.filter(e => e !== emoji) : [...current, emoji],
+    };
+    setMessageReactions(next);
+    try { localStorage.setItem(`wr-reactions-${room.id}`, JSON.stringify(next)); } catch {}
+
+    // ⭐ feeds into directions
+    if (emoji === "⭐" && !isActive) {
+      const msg = messages.find(m => m.id === msgId);
+      if (msg && directions.length < 5) saveDirection(msg.content);
+    }
   };
 
   // Build the full composed system prompt for an agent (base + voice + context)
@@ -1101,7 +1191,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
               )}
               {messages.map(msg => (
                 <div key={msg.id} className="msg-in">
-                  <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} />
+                  <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} reactions={messageReactions[msg.id] ?? []} onReact={toggleReaction} />
                 </div>
               ))}
 
