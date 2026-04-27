@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { Message, Room, PersonaId, Artifact, SpotifyTone } from "@/types";
+import type { ReviewScope } from "@/lib/review-mode";
 
 // ── Design tokens (from Claude Design handoff) ───────────────────────────────
 const T = {
@@ -37,6 +38,7 @@ interface Props {
   room: Room;
   currentUser: { id: string; name: string; image: string | null };
   userRole: "owner" | "member";
+  reviewScope: ReviewScope | null;
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -413,7 +415,8 @@ function FeatureModal({ title, onClose, children }: { title: string; onClose: ()
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
+export default function WritersRoom({ room: initialRoom, currentUser, reviewScope }: Props) {
+  const isReadOnly = reviewScope !== null && !reviewScope?.write;
   const router = useRouter();
   const [screen, setScreen]   = useState<Screen>("empty");
   const [modal, setModal]     = useState<Modal>(null);
@@ -890,12 +893,13 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                  placeholder="Type your message… @ to mention an agent"
+                  placeholder={isReadOnly ? "Read-only review mode — sign in to chat" : "Type your message… @ to mention an agent"}
+                  disabled={isReadOnly}
                   rows={1}
                   style={{ flex:1, background:"none", border:"none", outline:"none", resize:"none", fontFamily:T.sans, fontSize:14, color:T.text, lineHeight:1.55, maxHeight:120, overflowY:"auto" }}
                   onInput={(e:any) => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,120)+"px"; }}
                 />
-                <button onClick={send} disabled={!input.trim() || Object.keys(loading).length > 0} style={{
+                <button onClick={send} disabled={!input.trim() || Object.keys(loading).length > 0 || isReadOnly} style={{
                   background: Object.keys(loading).length > 0 ? T.bdr : T.bdr2,
                   border:"none", borderRadius:6, width:30, height:30, cursor:"pointer",
                   color:T.sub, display:"flex", alignItems:"center", justifyContent:"center",
