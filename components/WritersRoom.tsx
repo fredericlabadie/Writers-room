@@ -986,7 +986,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
               <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                 {artifacts.map(a => (
                   <div key={a.id} style={{ display:"flex", alignItems:"center", gap:6, padding:"4px 10px", background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:6, fontSize:12 }}>
-                    <span style={{ color:T.meta, fontFamily:T.mono }}>{a.file_type}</span>
+                    <span style={{ color:T.meta, fontFamily:T.mono }}>{a.mime_type ?? a.kind}</span>
                     <span style={{ color:T.text }}>{a.name}</span>
                     <button onClick={() => deleteArtifact(a.id)} style={{ background:"none", border:"none", color:T.meta, cursor:"pointer", fontSize:14 }}>×</button>
                   </div>
