@@ -136,9 +136,24 @@ function AgentMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) 
 }
 
 // Director — full-bleed synthesis treatment
-function DirectorMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
-  const [hov, setHov] = useState(false);
+function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave }: {
+  msg: Message;
+  onDelete: (id: string) => void;
+  onSave: (text: string) => void;
+  onContinue: (text: string) => void;
+  canSave: boolean;
+}) {
+  const [hov, setHov]   = useState(false);
+  const [saved, setSaved] = useState(false);
   const a = getAgent("director");
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave(msg.content);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1600);
+  };
+
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
@@ -161,23 +176,80 @@ function DirectorMessage({ msg, onDelete }: { msg: Message; onDelete: (id: strin
         {msg.content}
       </div>
       <div style={{ display:"flex", gap:10, marginTop:18 }}>
-        {["save as direction →", "continue"].map(l => (
-          <button key={l} style={{
+        <button
+          onClick={handleSave}
+          disabled={!canSave}
+          title={!canSave ? "5 directions saved" : "Pin this synthesis"}
+          style={{
+            background: saved ? "#c030ff22" : "none",
+            border: `1px solid ${saved ? "#c030ff88" : T.bdr2}`,
+            borderRadius:4, padding:"5px 14px",
+            fontFamily:T.mono, fontSize:9,
+            color: saved ? "#c030ff" : T.sub,
+            cursor: canSave ? "pointer" : "not-allowed",
+            opacity: canSave ? 1 : 0.35,
+            transition:"all 0.2s",
+          }}
+        >{saved ? "saved ✓" : "save as direction →"}</button>
+        <button
+          onClick={() => onContinue(msg.content)}
+          style={{
             background:"none", border:`1px solid ${T.bdr2}`, borderRadius:4,
             padding:"5px 14px", fontFamily:T.mono, fontSize:9, color:T.sub, cursor:"pointer",
-          }}>{l}</button>
-        ))}
+          }}
+        >continue</button>
       </div>
     </div>
   );
 }
 
 // Message router
-function MsgComponent({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
+function MsgComponent({ msg, onDelete, onSave, onContinue, canSave }: {
+  msg: Message;
+  onDelete: (id: string) => void;
+  onSave: (text: string) => void;
+  onContinue: (text: string) => void;
+  canSave: boolean;
+}) {
   if (msg.role === "user") return <UserMessage msg={msg} onDelete={onDelete} />;
-  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} />;
+  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} />;
   if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} />;
   return null;
+}
+
+// Directions panel — pinned above chat when directions exist
+function DirectionsPanel({ directions, onRemove }: { directions: string[]; onRemove: (i: number) => void }) {
+  if (!directions.length) return null;
+  return (
+    <div style={{
+      background:"#0d0d0d", borderBottom:"1px solid #1e1e1e",
+      padding:"12px 24px 16px", flexShrink:0,
+    }}>
+      <div style={{ maxWidth:720, margin:"0 auto" }}>
+        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:8.5, color:"#555", letterSpacing:"0.16em", marginBottom:10 }}>
+          DIRECTIONS
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+          {directions.map((d, i) => (
+            <div key={i} style={{
+              position:"relative",
+              borderLeft:"3px solid #c030ff",
+              background:"#c030ff08",
+              padding:"9px 36px 9px 14px",
+            }}>
+              <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"#c030ff66", marginRight:8 }}>{i + 1}.</span>
+              <span style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:13, color:"#dcdcdc", lineHeight:1.6 }}>{d}</span>
+              <button onClick={() => onRemove(i)} style={{
+                position:"absolute", top:6, right:8,
+                background:"none", border:"none", cursor:"pointer",
+                fontFamily:"'IBM Plex Mono',monospace", fontSize:13, color:"#7a7a7a", lineHeight:1,
+              }}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Floating draggable dock (desktop)
@@ -427,6 +499,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [isMobile, setIsMobile] = useState(false);
   const [showSheet, setShowSheet] = useState(false);
   const [agentCtx, setAgentCtx] = useState<Record<string, string>>({});
+  const [agentVoices, setAgentVoices] = useState<Record<string, { persona: string|null; genre: string|null; career: string|null }>>({});
+  const [directions, setDirections] = useState<string[]>([]);
 
   // Feature state
   const [artifacts, setArtifacts]   = useState<Artifact[]>([]);
@@ -470,10 +544,18 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
       .then(r => r.json())
       .then(data => Array.isArray(data) && setArtifacts(data));
 
-    // Restore agent context from localStorage
+    // Restore agent context, voices, and directions from localStorage
     try {
       const saved = localStorage.getItem(`wr-agent-ctx-${room.id}`);
       if (saved) setAgentCtx(JSON.parse(saved));
+    } catch {}
+    try {
+      const savedVoices = localStorage.getItem(`wr-agent-voices-${room.id}`);
+      if (savedVoices) setAgentVoices(JSON.parse(savedVoices));
+    } catch {}
+    try {
+      const savedDirs = localStorage.getItem(`wr-directions-${room.id}`);
+      if (savedDirs) setDirections(JSON.parse(savedDirs));
     } catch {}
 
     // Mobile detection
@@ -543,6 +625,33 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     try { localStorage.setItem(`wr-agent-ctx-${room.id}`, JSON.stringify(next)); } catch {}
   };
 
+  // Voice picker update (save to localStorage)
+  const updateAgentVoice = (agentId: string, category: "persona" | "genre" | "career", value: string | null) => {
+    const current = agentVoices[agentId] ?? { persona: null, genre: null, career: null };
+    const next = { ...agentVoices, [agentId]: { ...current, [category]: value } };
+    setAgentVoices(next);
+    try { localStorage.setItem(`wr-agent-voices-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
+  // Directions
+  const saveDirection = (text: string) => {
+    if (directions.length >= 5) return;
+    const next = [...directions, text];
+    setDirections(next);
+    try { localStorage.setItem(`wr-directions-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
+  const removeDirection = (index: number) => {
+    const next = directions.filter((_, i) => i !== index);
+    setDirections(next);
+    try { localStorage.setItem(`wr-directions-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
+  const continueFromDirector = (directorText: string) => {
+    setInput(`@writer continue from the director's direction`);
+    inputRef.current?.focus();
+  };
+
   // Insert @mention into input
   const insertMention = (id: AgentId) => {
     setInput(prev => prev + `@${id} `);
@@ -575,9 +684,19 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     mentions.forEach(id => { newLoading[id] = true; });
     setLoading(newLoading);
 
+    // Build history snapshot; prepend pinned directions as context
+    const directionsBlock = directions.length > 0
+      ? `PINNED DIRECTIONS:
+${directions.map((d, i) => `${i + 1}. ${d}`).join('
+')}`
+      : null;
+
     const historySnapshot = [...messages, userMsg].map(m => ({
       role: m.role, persona: m.persona, content: m.content, user_name: m.user_name,
     }));
+    if (directionsBlock) {
+      historySnapshot.unshift({ role: "system", persona: undefined, content: directionsBlock, user_name: undefined });
+    }
 
     for (const personaId of mentions) {
       try {
@@ -589,7 +708,19 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
             userMessage: text,
             roomId: room.id,
             history: historySnapshot,
-            agentContext: agentCtx[personaId] || null,
+            agentContext: [
+              agentCtx[personaId] || null,
+              (() => {
+                const v = agentVoices[personaId];
+                if (!v) return null;
+                const parts = [
+                  v.persona ? `Write in the style of ${v.persona}.` : null,
+                  v.genre ? `Genre: ${v.genre}.` : null,
+                  v.career ? `Perspective: ${v.career}.` : null,
+                ].filter(Boolean);
+                return parts.length ? parts.join(' ') : null;
+              })(),
+            ].filter(Boolean).join(' ') || null,
           }),
         });
 
@@ -625,6 +756,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   // Clear conversation
   const clearConversation = () => {
     setMessages([]);
+    setDirections([]);
+    try { localStorage.removeItem(`wr-directions-${room.id}`); } catch {}
     setScreen("empty");
   };
 
@@ -842,6 +975,9 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
 
       {screen === "chat" && (
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+          {/* Pinned directions */}
+          <DirectionsPanel directions={directions} onRemove={removeDirection} />
+
           {/* Messages */}
           <div style={{ flex:1, overflowY:"auto", padding:"24px 24px 120px" }}>
             <div style={{ maxWidth:720, margin:"0 auto" }}>
@@ -852,7 +988,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
               )}
               {messages.map(msg => (
                 <div key={msg.id} className="msg-in">
-                  <MsgComponent msg={msg} onDelete={deleteMsg} />
+                  <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} />
                 </div>
               ))}
 
@@ -950,6 +1086,38 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                     rows={3}
                     style={{ width:"100%", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:6, padding:"10px 12px", resize:"vertical", fontFamily:T.sans, fontSize:13, color:T.text, lineHeight:1.6, outline:"none" }}
                   />
+                  {/* Voice picker */}
+                  <div style={{ borderTop:`1px solid ${T.bdr}`, paddingTop:14, marginTop:4 }}>
+                    {(["persona","genre","career"] as const).map(cat => {
+                      const opts: Record<string, string[]> = {
+                        persona: ["Christopher Hitchens","Joan Didion","David Foster Wallace","Zadie Smith","Malcolm Gladwell","Ta-Nehisi Coates","Hunter S. Thompson","Susan Sontag","George Orwell","Toni Morrison"],
+                        genre:   ["Literary Journalism","Academic","Investigative","Gonzo","Business","Technical","Op-Ed","Lyric Essay","Narrative Non-fiction","Satire"],
+                        career:  ["Investigative Reporter","Brand Strategist","Senior Editor","Academic Researcher","Ghostwriter","Film Critic","Science Journalist","Cultural Critic","Political Analyst","Copywriter"],
+                      };
+                      const labels: Record<string, string> = { persona:"PERSONA — write like", genre:"GENRE — style", career:"CAREER — perspective" };
+                      const selected = agentVoices[a.id]?.[cat] ?? null;
+                      return (
+                        <div key={cat} style={{ marginBottom:10 }}>
+                          <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em", marginBottom:6 }}>{labels[cat]}</div>
+                          <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+                            {opts[cat].map(opt => {
+                              const isSelected = selected === opt;
+                              return (
+                                <button key={opt} onClick={() => updateAgentVoice(a.id, cat, isSelected ? null : opt)} style={{
+                                  background: isSelected ? a.color+"22" : "transparent",
+                                  border: `1px solid ${isSelected ? a.color+"88" : T.bdr2}`,
+                                  borderRadius:4, padding:"4px 10px",
+                                  fontFamily:T.sans, fontSize:11.5,
+                                  color: isSelected ? a.color : T.sub,
+                                  cursor:"pointer", transition:"all 0.15s",
+                                }}>{opt}</button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
