@@ -2,6 +2,7 @@ import { assertWriteAllowed, getActorContext, unauthorizedResponse, verifyRoomAc
 import { retrieveRelevantChunks } from "@/lib/artifacts/retrieve";
 import { PERSONAS, buildContextString } from "@/lib/personas";
 import { createSupabaseServiceClient } from "@/lib/supabase";
+import { checkAndRecordCall, rateLimitResponse } from "@/lib/rateLimit";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import type { PersonaId, RetrievalDebugInfo, RetrievalSettings } from "@/types";
@@ -31,16 +32,22 @@ function buildPrompt(
   userMessage: string,
   history: Array<{ role: string; persona?: string; content: string; user_name?: string }>,
   personaName: string,
-  artifactContext: string
+  artifactContext: string,
+  userContext?: string | null
 ) {
+  const userContextBlock = userContext
+    ? `USER CONTEXT (what this user has told you about themselves/their project):\n${userContext}\n\n`
+    : "";
+
   if (!history.length) {
     return [
+      userContextBlock,
       FILE_GENERATION_INSTRUCTIONS,
       "",
       `The user just said: "${userMessage}"`,
       "",
       `Respond as ${personaName}.`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
   }
 
   const tail = history.slice(-CONTEXT_TAIL_COUNT);
@@ -61,6 +68,7 @@ function buildPrompt(
     : "";
 
   return [
+    userContextBlock,
     `Conversation context (${tail.length} most recent messages):`,
     "",
     context,
@@ -72,7 +80,7 @@ function buildPrompt(
     "---",
     "",
     artifactContext ? `Artifact context:\n${artifactContext}` : "",
-    artifactContext ? "" : "",
+    "",
     "---",
     "",
     `The user just said: "${userMessage}"`,
@@ -91,14 +99,21 @@ export async function POST(req: Request) {
   const writeError = assertWriteAllowed(actor);
   if (writeError) return writeError;
 
+  // ── Rate limiting (user sessions only, not review tokens) ─────────────────
+  if (actor.mode === "user" && actor.userId) {
+    const rl = await checkAndRecordCall(actor.userId);
+    if (!rl.allowed) return rateLimitResponse(rl.resetAt);
+  }
+
   const body = await req.json() as {
     personaId: PersonaId;
     userMessage: string;
     roomId: string;
     history: Array<{ role: string; persona?: string; content: string; user_name?: string }>;
     retrieval?: Partial<RetrievalSettings>;
-    selectedArtifactIds?: string[]; // legacy
+    selectedArtifactIds?: string[];
     sectionId?: string | null;
+    agentContext?: string | null; // per-agent user notes from Configure Roles
   };
   const { personaId, userMessage, roomId, history } = body;
 
@@ -140,7 +155,9 @@ export async function POST(req: Request) {
         mood?.moodLabel ? `Mood: ${mood.moodLabel}` : "",
         descriptors ? `Descriptors: ${descriptors}` : "",
         mood?.guidance ? `Guidance: ${mood.guidance}` : "",
-        section.spotify_track_name ? `Song: ${section.spotify_track_name}${section.spotify_artist_name ? ` — ${section.spotify_artist_name}` : ""}` : "",
+        section.spotify_track_name
+          ? `Song: ${section.spotify_track_name}${section.spotify_artist_name ? ` — ${section.spotify_artist_name}` : ""}`
+          : "",
       ]
         .filter(Boolean)
         .join("\n");
@@ -158,12 +175,18 @@ export async function POST(req: Request) {
   });
 
   const artifactContext = retrieved
-    .map((chunk, i) => `[${i + 1}] ${chunk.citation.artifactName} (chunk ${chunk.citation.chunkIndex}, score ${chunk.citation.score})\n${chunk.content}`)
+    .map((chunk, i) =>
+      `[${i + 1}] ${chunk.citation.artifactName} (chunk ${chunk.citation.chunkIndex}, score ${chunk.citation.score})\n${chunk.content}`
+    )
     .join("\n\n");
-  const combinedContext = [artifactContext, sectionToneContext ? `Section tone context:\n${sectionToneContext}` : ""]
+  const combinedContext = [
+    artifactContext,
+    sectionToneContext ? `Section tone context:\n${sectionToneContext}` : "",
+  ]
     .filter(Boolean)
     .join("\n\n");
-  const prompt = buildPrompt(userMessage, history, persona.name, combinedContext);
+
+  const prompt = buildPrompt(userMessage, history, persona.name, combinedContext, body.agentContext);
 
   try {
     const message = await anthropic.messages.create({
@@ -176,27 +199,37 @@ export async function POST(req: Request) {
 
     const text = message.content[0].type === "text" ? message.content[0].text : "";
 
-    // Persist agent message to database
     const citations = retrieved.map((item) => item.citation);
     const retrievalDebug: RetrievalDebugInfo = {
       mode,
       topK,
       threshold,
       retrievedCount: retrieved.length,
-      usedArtifactIds: Array.from(new Set(citations.map((citation) => citation.artifactId))),
-      maxScore: citations.length ? Math.max(...citations.map((citation) => citation.score)) : 0,
+      usedArtifactIds: Array.from(new Set(citations.map((c) => c.artifactId))),
+      maxScore: citations.length ? Math.max(...citations.map((c) => c.score)) : 0,
     };
-    await supabase.from("messages").insert({
-      room_id: roomId,
-      role: "agent",
-      persona: personaId,
-      content: text,
-      citations,
-      retrieval_debug: retrievalDebug,
-      section_id: body.sectionId ?? null,
-    });
 
-    return NextResponse.json({ text, citations, retrieval: retrievalDebug });
+    // Persist agent message — return its DB id for Realtime deduplication
+    const { data: savedMsg } = await supabase
+      .from("messages")
+      .insert({
+        room_id: roomId,
+        role: "agent",
+        persona: personaId,
+        content: text,
+        citations,
+        retrieval_debug: retrievalDebug,
+        section_id: body.sectionId ?? null,
+      })
+      .select("id")
+      .single();
+
+    return NextResponse.json({
+      text,
+      id: savedMsg?.id ?? null, // real DB id — used by client for Realtime dedup
+      citations,
+      retrieval: retrievalDebug,
+    });
   } catch (err) {
     console.error("Anthropic error:", err);
     return NextResponse.json({ error: "Model call failed" }, { status: 500 });

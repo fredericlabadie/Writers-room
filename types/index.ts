@@ -39,6 +39,8 @@ export interface Room {
   owner_id: string;
   is_private: boolean;
   invite_code: string | null;
+  notebooklm_url: string | null;
+  active_tone: SpotifyTone | null;
   created_at: string;
   member_count?: number;
 }
@@ -124,4 +126,22 @@ export interface RoomSection {
   mood_profile: SectionMoodProfile | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SpotifyTone {
+  trackName: string;
+  artistName: string;
+  descriptor: string;
+  moodTags: string[];
+  energy: number;
+  valence: number;
+}
+
+export interface ReviewLink {
+  id: string;
+  room_id: string;
+  token: string;
+  created_by: string;
+  expires_at: string | null;
+  created_at: string;
 }

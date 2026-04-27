@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
+import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { Message, Room, PersonaId, Artifact, SpotifyTone } from "@/types";
 
 // ── Design tokens (from Claude Design handoff) ───────────────────────────────
@@ -435,22 +436,29 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
   const [reviewLink, setReviewLink] = useState("");
   const [generatingReview, setGeneratingReview] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
   const fileRef   = useRef<HTMLInputElement>(null);
+  // Track IDs added locally so Realtime subscription doesn't double-add them
+  const seenIds   = useRef<Set<string>>(new Set());
 
-  // Load history, artifacts, agent context on mount
+  // Load history, artifacts, agent context on mount + Realtime subscription
   useEffect(() => {
+    // Load message history
     fetch(`/api/messages?roomId=${room.id}`)
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
-          setMessages(data.map((m: any) => ({
+          const msgs = data.map((m: any) => ({
             ...m,
             user_name: m.profiles?.name ?? "User",
             user_avatar: m.profiles?.avatar_url ?? null,
-          })));
+          }));
+          // Seed seenIds with all existing message IDs
+          msgs.forEach((m: Message) => seenIds.current.add(m.id));
+          setMessages(msgs);
           setScreen("chat");
         }
       });
@@ -469,7 +477,42 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
     window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+
+    // ── Realtime subscription ──────────────────────────────────────────────
+    // Receives messages inserted by OTHER users in this room.
+    // We skip IDs already in seenIds (our own optimistic messages).
+    const supabase = createSupabaseBrowserClient();
+    const channel = supabase
+      .channel(`room-messages-${room.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages", filter: `room_id=eq.${room.id}` },
+        (payload) => {
+          const raw = payload.new as any;
+          if (seenIds.current.has(raw.id)) return; // already added locally
+          seenIds.current.add(raw.id);
+
+          const incoming: Message = {
+            id:         raw.id,
+            role:       raw.role,
+            persona:    raw.persona ?? undefined,
+            content:    raw.content,
+            user_id:    raw.user_id ?? undefined,
+            user_name:  raw.user_id ? undefined : undefined, // resolved below if needed
+            created_at: raw.created_at,
+            citations:  raw.citations ?? undefined,
+          };
+
+          setMessages(prev => [...prev, incoming]);
+          setScreen("chat");
+        }
+      )
+      .subscribe();
+
+    return () => {
+      window.removeEventListener("resize", check);
+      supabase.removeChannel(channel);
+    };
   }, [room.id]);
 
   // Keyboard shortcut: ⌘K
@@ -508,14 +551,16 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
     const text = input.trim();
     if (!text || Object.keys(loading).length > 0) return;
     setInput("");
+    setRateLimitError(null);
 
-    // Save user message
+    // Save user message to DB — use the returned real ID for Realtime dedup
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roomId: room.id, content: text }),
     });
     const saved = await res.json();
+    if (saved.id) seenIds.current.add(saved.id); // mark as seen before Realtime fires
     const userMsg: Message = { ...saved, role: "user", user_name: currentUser.name, user_avatar: currentUser.image };
     setMessages(prev => [...prev, userMsg]);
     setScreen("chat");
@@ -541,21 +586,32 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
             userMessage: text,
             roomId: room.id,
             history: historySnapshot,
-            allMentions: mentions,
             agentContext: agentCtx[personaId] || null,
           }),
         });
-        const { text: agentText, directorText } = await agentRes.json();
-        const agentMsg: Message = { id:`${Date.now()}-${personaId}`, role:"agent", persona:personaId as PersonaId, content:agentText, created_at:now() };
-        setMessages(prev => [...prev, agentMsg]);
-        historySnapshot.push({ role:"agent", persona:personaId, content:agentText, user_name:undefined });
 
-        if (directorText) {
-          const dirMsg: Message = { id:`${Date.now()}-director-auto`, role:"agent", persona:"director", content:directorText, created_at:now() };
-          setMessages(prev => [...prev, dirMsg]);
-          historySnapshot.push({ role:"agent", persona:"director", content:directorText, user_name:undefined });
+        if (agentRes.status === 429) {
+          const err = await agentRes.json();
+          setRateLimitError(err.message ?? "Rate limit reached. Try again next hour.");
+          setLoading({});
+          return;
         }
-      } catch { /* skip */ }
+
+        const { text: agentText, id: agentId } = await agentRes.json();
+
+        // Mark the DB id as seen so Realtime doesn't duplicate it
+        if (agentId) seenIds.current.add(agentId);
+
+        const agentMsg: Message = {
+          id: agentId ?? `${Date.now()}-${personaId}`,
+          role: "agent",
+          persona: personaId as PersonaId,
+          content: agentText,
+          created_at: now(),
+        };
+        setMessages(prev => [...prev, agentMsg]);
+        historySnapshot.push({ role: "agent", persona: personaId, content: agentText, user_name: undefined });
+      } catch { /* skip failed agent */ }
       setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
     }
   }, [input, loading, messages, room.id, currentUser, agentCtx]);
@@ -817,7 +873,14 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
 
           {/* Input bar */}
           <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:`linear-gradient(transparent, ${T.bg} 36%)`, padding:"28px 24px 20px" }}>
-            <div style={{ maxWidth:720, margin:"0 auto", display:"flex", gap:8, alignItems:"flex-end" }}>
+            <div style={{ maxWidth:720, margin:"0 auto" }}>
+          {rateLimitError && (
+            <div style={{ marginBottom:10, padding:"8px 12px", background:"#ff3d3d18", border:"1px solid #ff3d3d44", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <span style={{ fontFamily:T.mono, fontSize:10, color:"#ff3d3d" }}>⚡ {rateLimitError}</span>
+              <button onClick={() => setRateLimitError(null)} style={{ background:"none", border:"none", color:"#ff3d3d", cursor:"pointer", fontSize:14 }}>×</button>
+            </div>
+          )}
+          <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
               <div style={{ flex:1, background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:10, display:"flex", alignItems:"flex-end", padding:"10px 14px", gap:8 }}>
                 <textarea
                   ref={inputRef}
@@ -843,6 +906,7 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
                   cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
                 }}>@</button>
               )}
+            </div>
             </div>
           </div>
         </div>
