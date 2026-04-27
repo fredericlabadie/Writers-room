@@ -51,7 +51,7 @@ Next.js, Supabase, multi-agent @mentions, artifact RAG, NotebookLM export bridge
 - **Section tone controls** — extract mood from Spotify tracks and apply tone by section
 - **AI review mode** — share signed, scoped review links with Claude/other AIs
 
-**Related (separate codebase):** [book-playlist-tool](https://github.com/fredericlabadie/book-playlist-tool) — book ↔ playlist suggestions. Reuse the same `ANTHROPIC_API_KEY` and `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` in its `.env.local`.
+**Related (separate codebase):** [VibeReader](https://github.com/fredericlabadie/VibeReader) — book ↔ playlist suggestions. Reuse the same `ANTHROPIC_API_KEY` and `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` in its `.env.local`.
 
 ## Stack
 
