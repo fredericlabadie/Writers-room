@@ -651,7 +651,10 @@ export default function WritersRoom({ room: initialRoom, currentUser }: Props) {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ roomId:room.id, name:file.name, content, file_type }),
     });
-    if (res.ok) setArtifacts(prev => [await res.json(), ...prev]);
+    if (res.ok) {
+      const artifact = await res.json();
+      setArtifacts(prev => [artifact, ...prev]);
+    }
     setUploadingArtifact(false);
     if (fileRef.current) fileRef.current.value = "";
   };
