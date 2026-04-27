@@ -47,10 +47,11 @@ Next.js, Supabase, multi-agent @mentions, artifact RAG, NotebookLM export bridge
 - **Role-tuned generation** — each agent uses different temperature and token budgets
 - **Auto-guide synthesis** — when 2+ agents are mentioned, `@director` closes with a decision and next move
 - **NotebookLM bridge** — save your NotebookLM URL and export a room Lore Pack for long-term lore storage
-- **Book ↔ playlist ideas** — suggest a track list from a book, or read-alike books from a public Spotify playlist (Claude + Spotify audio features)
 - **Artifacts + RAG** — upload book bibles/docs/images and ground replies with citations
 - **Section tone controls** — extract mood from Spotify tracks and apply tone by section
 - **AI review mode** — share signed, scoped review links with Claude/other AIs
+
+**Related (separate codebase):** [book-playlist-tool](https://github.com/fredericlabadie/book-playlist-tool) — book ↔ playlist suggestions. Reuse the same `ANTHROPIC_API_KEY` and `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` in its `.env.local`.
 
 ## Stack
 

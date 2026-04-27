@@ -86,7 +86,7 @@ export default function RoomsPage() {
             })}
           </div>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color: "#666", letterSpacing: "0.1em" }}>
-            WRITERS ROOM
+            STORY WORLDS STUDIO
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
@@ -114,7 +114,7 @@ export default function RoomsPage() {
           </div>
         )}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "32px" }}>
-          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#e5e5e5" }}>Your Rooms</h2>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#e5e5e5" }}>Your Story Worlds</h2>
           <div style={{ display: "flex", gap: "8px" }}>
             <button onClick={() => { setShowJoin(true); setShowCreate(false); }} style={{
               padding: "8px 16px", borderRadius: "7px", background: "#111",
@@ -126,7 +126,7 @@ export default function RoomsPage() {
               padding: "8px 16px", borderRadius: "7px", background: "#1d3461",
               border: "1px solid #2d4f8a", color: "#60a5fa", fontSize: "13px",
             }} disabled={readOnlyReview}>
-              + New Room
+              + New World
             </button>
           </div>
         </div>
@@ -137,16 +137,16 @@ export default function RoomsPage() {
             background: "#111", border: "1px solid #1e1e1e", borderRadius: "10px",
             padding: "24px", marginBottom: "24px", display: "flex", flexDirection: "column", gap: "12px",
           }}>
-            <p style={{ fontSize: "13px", color: "#888", fontFamily: "var(--font-mono)" }}>NEW ROOM</p>
-            <input placeholder="Room name" value={newRoom.name} onChange={e => setNewRoom(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
-            <input placeholder="Description (optional)" value={newRoom.description} onChange={e => setNewRoom(p => ({ ...p, description: e.target.value }))} style={inputStyle} />
+            <p style={{ fontSize: "13px", color: "#888", fontFamily: "var(--font-mono)" }}>NEW STORY WORLD</p>
+            <input placeholder="World or project name" value={newRoom.name} onChange={e => setNewRoom(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
+            <input placeholder="Premise or world notes (optional)" value={newRoom.description} onChange={e => setNewRoom(p => ({ ...p, description: e.target.value }))} style={inputStyle} />
             <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#888", cursor: "pointer" }}>
               <input type="checkbox" checked={newRoom.is_private} onChange={e => setNewRoom(p => ({ ...p, is_private: e.target.checked }))} />
-              Private (invite-only)
+              Private world (invite-only)
             </label>
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={createRoom} style={{ padding: "9px 20px", borderRadius: "7px", background: "#1d3461", border: "1px solid #2d4f8a", color: "#60a5fa", fontSize: "13px" }}>
-                Create
+                Create World
               </button>
               <button onClick={() => setShowCreate(false)} style={{ padding: "9px 20px", borderRadius: "7px", background: "none", border: "1px solid #2a2a2a", color: "#666", fontSize: "13px" }}>
                 Cancel
@@ -180,8 +180,8 @@ export default function RoomsPage() {
           <p style={{ color: "#444", fontFamily: "var(--font-mono)", fontSize: "12px" }}>Loading...</p>
         ) : rooms.length === 0 ? (
           <div style={{ textAlign: "center", padding: "60px 0", color: "#444" }}>
-            <p style={{ fontSize: "14px", marginBottom: "8px" }}>No rooms yet.</p>
-            <p style={{ fontSize: "12px", fontFamily: "var(--font-mono)" }}>Create one or join with an invite code.</p>
+            <p style={{ fontSize: "14px", marginBottom: "8px" }}>No story worlds yet.</p>
+            <p style={{ fontSize: "12px", fontFamily: "var(--font-mono)" }}>Create one or join one with an invite code.</p>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>

@@ -113,25 +113,6 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   const [showTourPrompt, setShowTourPrompt] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourStepIdx, setTourStepIdx] = useState(0);
-  const [showBookPlaylist, setShowBookPlaylist] = useState(false);
-  const [bpMode, setBpMode] = useState<"book_to_playlist" | "playlist_to_book">("book_to_playlist");
-  const [bpBookTitle, setBpBookTitle] = useState("");
-  const [bpBookAuthor, setBpBookAuthor] = useState("");
-  const [bpBookNotes, setBpBookNotes] = useState("");
-  const [bpPlaylistUrl, setBpPlaylistUrl] = useState("");
-  const [bpBusy, setBpBusy] = useState(false);
-  const [bpError, setBpError] = useState("");
-  const [bpBookToPl, setBpBookToPl] = useState<{
-    playlistName: string;
-    rationale: string;
-    moodTags: string[];
-    tracks: Array<{ title: string; artist: string; whyItFits: string }>;
-  } | null>(null);
-  const [bpPlToBook, setBpPlToBook] = useState<{
-    rationale: string;
-    books: Array<{ title: string; author: string; whyItFits: string }>;
-  } | null>(null);
-  const [bpDigestSummary, setBpDigestSummary] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const artifactInputRef = useRef<HTMLInputElement>(null);
@@ -686,54 +667,6 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const spotifyTrackSearchUrl = (artist: string, title: string) =>
-    `https://open.spotify.com/search/${encodeURIComponent(`${artist} ${title}`)}`;
-
-  const openLibrarySearchUrl = (title: string, author: string) =>
-    `https://openlibrary.org/search?q=${encodeURIComponent(`${title} ${author}`)}`;
-
-  const runBookPlaylistTool = async () => {
-    if (readOnlyReview) return;
-    setBpBusy(true);
-    setBpError("");
-    setBpBookToPl(null);
-    setBpPlToBook(null);
-    setBpDigestSummary(null);
-    try {
-      const res = await fetch("/api/recommendations/book-playlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          bpMode === "book_to_playlist"
-            ? {
-                mode: "book_to_playlist",
-                bookTitle: bpBookTitle.trim(),
-                bookAuthor: bpBookAuthor.trim(),
-                bookNotes: bpBookNotes.trim() || undefined,
-              }
-            : { mode: "playlist_to_book", spotifyPlaylistUrl: bpPlaylistUrl.trim() },
-        ),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
-      if (data.mode === "book_to_playlist") {
-        setBpBookToPl(data.result);
-      } else {
-        setBpPlToBook(data.result);
-        const d = data.digest as { playlistName?: string; mood?: { moodLabel?: string }; analyzedTrackCount?: number } | undefined;
-        if (d) {
-          setBpDigestSummary(
-            `${d.playlistName ?? "Playlist"} · ${d.mood?.moodLabel ?? ""} · ${d.analyzedTrackCount ?? 0} tracks analyzed for sound`,
-          );
-        }
-      }
-    } catch (e) {
-      setBpError(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setBpBusy(false);
-    }
-  };
-
   const renderContent = (text: string) => {
     const parts = text.split(/(@\w+)/g);
     return parts.map((part, i) => {
@@ -782,19 +715,12 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
               REVIEW {readOnlyReview ? "READ-ONLY" : "WRITE"}
             </span>
           )}
-          <button onClick={() => { setShowArtifacts((v) => !v); if (!showArtifacts) setShowBookPlaylist(false); }} style={{
+          <button onClick={() => setShowArtifacts((v) => !v)} style={{
             background: "none", border: "1px solid #2a2a2a", color: showArtifacts ? "#60a5fa" : "#666",
             padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
             fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
           }}>
             {showArtifacts ? "HIDE FILES" : "FILES"}
-          </button>
-          <button onClick={() => { setShowBookPlaylist((v) => !v); if (!showBookPlaylist) setShowArtifacts(false); }} style={{
-            background: "none", border: "1px solid #2a2a2a", color: showBookPlaylist ? "#34d399" : "#666",
-            padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
-            fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
-          }}>
-            {showBookPlaylist ? "HIDE BOOK↔PLAYLIST" : "BOOK↔PLAYLIST"}
           </button>
           {room.invite_code && (
             <button onClick={copyInvite} style={{
@@ -1047,127 +973,6 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             </div>
             {notebookStatus && <div style={{ color: "#34d399", fontSize: "11px", fontFamily: "var(--font-mono)" }}>{notebookStatus}</div>}
           </div>
-        </div>
-      )}
-
-      {showBookPlaylist && (
-        <div style={{
-          padding: "12px 24px", borderBottom: "1px solid #1e1e1e", background: "#0f1412",
-          display: "flex", flexDirection: "column", gap: "10px",
-        }}>
-          <span style={{ fontSize: "11px", color: "#6ee7b7", fontFamily: "var(--font-mono)" }}>
-            BOOK ↔ PLAYLIST (suggestions only — build the playlist in Spotify yourself)
-          </span>
-          <div style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>
-            Playlist from book uses AI only. Book from playlist uses a <strong>public</strong> Spotify playlist plus averaged audio features, then AI for read-alikes.
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-            <label style={{ fontSize: "11px", color: "#888", display: "flex", alignItems: "center", gap: "6px" }}>
-              <span>Mode</span>
-              <select
-                value={bpMode}
-                onChange={(e) => setBpMode(e.target.value as "book_to_playlist" | "playlist_to_book")}
-                disabled={readOnlyReview || bpBusy}
-                style={{ background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "4px 8px", fontSize: "11px" }}
-              >
-                <option value="book_to_playlist">Book → playlist ideas</option>
-                <option value="playlist_to_book">Playlist → book ideas</option>
-              </select>
-            </label>
-            <button
-              onClick={() => void runBookPlaylistTool()}
-              disabled={readOnlyReview || bpBusy || (bpMode === "book_to_playlist" && (!bpBookTitle.trim() || !bpBookAuthor.trim())) || (bpMode === "playlist_to_book" && !bpPlaylistUrl.trim())}
-              style={{
-                background: "#14532d",
-                border: "1px solid #166534",
-                color: "#6ee7b7",
-                borderRadius: "6px",
-                fontSize: "11px",
-                padding: "6px 12px",
-                fontFamily: "var(--font-mono)",
-                opacity: readOnlyReview || bpBusy ? 0.6 : 1,
-              }}
-            >
-              {bpBusy ? "WORKING…" : "GET SUGGESTIONS"}
-            </button>
-          </div>
-          {bpMode === "book_to_playlist" ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-              <input
-                value={bpBookTitle}
-                onChange={(e) => setBpBookTitle(e.target.value)}
-                placeholder="Book title"
-                disabled={readOnlyReview || bpBusy}
-                style={{ minWidth: "160px", flex: 1, background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
-              />
-              <input
-                value={bpBookAuthor}
-                onChange={(e) => setBpBookAuthor(e.target.value)}
-                placeholder="Author"
-                disabled={readOnlyReview || bpBusy}
-                style={{ minWidth: "140px", flex: 1, background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
-              />
-              <input
-                value={bpBookNotes}
-                onChange={(e) => setBpBookNotes(e.target.value)}
-                placeholder="Genre / mood notes (optional)"
-                disabled={readOnlyReview || bpBusy}
-                style={{ minWidth: "220px", flex: 2, background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
-              />
-            </div>
-          ) : (
-            <input
-              value={bpPlaylistUrl}
-              onChange={(e) => setBpPlaylistUrl(e.target.value)}
-              placeholder="Public Spotify playlist link"
-              disabled={readOnlyReview || bpBusy}
-              style={{ width: "100%", maxWidth: "560px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
-            />
-          )}
-          {bpError && <div style={{ color: "#f87171", fontSize: "12px" }}>{bpError}</div>}
-          {bpDigestSummary && (
-            <div style={{ fontSize: "11px", color: "#6b7280", fontFamily: "var(--font-mono)" }}>{bpDigestSummary}</div>
-          )}
-          {bpBookToPl && (
-            <div style={{ borderTop: "1px solid #1f2f24", paddingTop: "10px" }}>
-              <div style={{ fontSize: "15px", fontWeight: 600, color: "#e5e5e5", marginBottom: "4px" }}>{bpBookToPl.playlistName}</div>
-              <p style={{ fontSize: "13px", color: "#a3a3a3", marginBottom: "8px", lineHeight: 1.5 }}>{bpBookToPl.rationale}</p>
-              {!!bpBookToPl.moodTags?.length && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
-                  {bpBookToPl.moodTags.map((tag) => (
-                    <span key={tag} style={{ fontSize: "10px", color: "#6ee7b7", border: "1px solid #14532d", borderRadius: "999px", padding: "2px 8px" }}>{tag}</span>
-                  ))}
-                </div>
-              )}
-              <ol style={{ margin: 0, paddingLeft: "18px", color: "#d1d5db", fontSize: "13px", lineHeight: 1.55 }}>
-                {bpBookToPl.tracks.map((t, i) => (
-                  <li key={`${t.artist}-${t.title}-${i}`} style={{ marginBottom: "8px" }}>
-                    <strong>{t.artist}</strong> — {t.title}
-                    <div style={{ fontSize: "12px", color: "#9ca3af" }}>{t.whyItFits}</div>
-                    <a href={spotifyTrackSearchUrl(t.artist, t.title)} target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", color: "#34d399" }}>
-                      Search on Spotify
-                    </a>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-          {bpPlToBook && (
-            <div style={{ borderTop: "1px solid #1f2f24", paddingTop: "10px" }}>
-              <p style={{ fontSize: "13px", color: "#a3a3a3", marginBottom: "10px", lineHeight: 1.5 }}>{bpPlToBook.rationale}</p>
-              <ol style={{ margin: 0, paddingLeft: "18px", color: "#d1d5db", fontSize: "13px", lineHeight: 1.55 }}>
-                {bpPlToBook.books.map((b, i) => (
-                  <li key={`${b.author}-${b.title}-${i}`} style={{ marginBottom: "8px" }}>
-                    <strong>{b.title}</strong> — {b.author}
-                    <div style={{ fontSize: "12px", color: "#9ca3af" }}>{b.whyItFits}</div>
-                    <a href={openLibrarySearchUrl(b.title, b.author)} target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", color: "#34d399" }}>
-                      Search Open Library
-                    </a>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
         </div>
       )}
 

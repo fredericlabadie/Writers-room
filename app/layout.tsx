@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Writers Room",
-  description: "A collaborative AI writing space",
+  description: "A collaborative AI studio for story writing and worldbuilding",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
