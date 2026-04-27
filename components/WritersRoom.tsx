@@ -686,9 +686,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
 
     // Build history snapshot; prepend pinned directions as context
     const directionsBlock = directions.length > 0
-      ? `PINNED DIRECTIONS:
-${directions.map((d, i) => `${i + 1}. ${d}`).join('
-')}`
+      ? "PINNED DIRECTIONS:\n" + directions.map((d, i) => `${i + 1}. ${d}`).join("\n")
       : null;
 
     const historySnapshot = [...messages, userMsg].map(m => ({
