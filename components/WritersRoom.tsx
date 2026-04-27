@@ -527,6 +527,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [agentCtx, setAgentCtx] = useState<Record<string, string>>({});
   const [agentVoices, setAgentVoices] = useState<Record<string, { persona: string|null; genre: string|null; career: string|null }>>({});
   const [directions, setDirections] = useState<string[]>([]);
+  const [expandedPrompt, setExpandedPrompt] = useState<string | null>(null);
 
   // Feature state
   const [artifacts, setArtifacts]   = useState<Artifact[]>([]);
@@ -674,6 +675,39 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     const next = { ...agentVoices, [agentId]: { ...current, [category]: value } };
     setAgentVoices(next);
     try { localStorage.setItem(`wr-agent-voices-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
+  // Build the full composed system prompt for an agent (base + voice + context)
+  const buildComposedPrompt = (agentId: string): string => {
+    const persona = PERSONAS[agentId as PersonaId];
+    if (!persona) return "";
+    const parts: string[] = [persona.system];
+    const v = agentVoices[agentId];
+    if (v) {
+      const voiceParts = [
+        v.persona ? `Write in the style of ${v.persona}.` : null,
+        v.genre   ? `Genre: ${v.genre}.`                  : null,
+        v.career  ? `Perspective: ${v.career}.`           : null,
+      ].filter(Boolean);
+      if (voiceParts.length) parts.push("\nVOICE SETTINGS:\n" + voiceParts.join(" "));
+    }
+    const ctx = agentCtx[agentId];
+    if (ctx?.trim()) parts.push("\nUSER CONTEXT:\n" + ctx.trim());
+    return parts.join("\n");
+  };
+
+  // Export all five composed prompts as a single .md file
+  const exportAllPrompts = () => {
+    const sections = AGENTS.map(a => {
+      const prompt = buildComposedPrompt(a.id);
+      return `## @${a.id} — ${a.label}\n\n\`\`\`\n${prompt}\n\`\`\``;
+    }).join("\n\n---\n\n");
+    const md = `# Writers Room — Agent System Prompts\nExported: ${new Date().toLocaleString()}\n\n---\n\n${sections}`;
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "writers-room-prompts.md"; a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Directions
@@ -1135,8 +1169,17 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
       {screen === "roles" && (
         <div style={{ flex:1, overflowY:"auto", padding:"36px 24px 60px" }}>
           <div style={{ maxWidth:680, margin:"0 auto" }}>
-            <div style={{ fontFamily:T.sans, fontSize:13, color:T.sub, marginBottom:32, lineHeight:1.7, maxWidth:480 }}>
-              Add notes about yourself or your project for each agent. These appear in their hover card and inform every response.
+            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:32, gap:16 }}>
+              <p style={{ fontFamily:T.sans, fontSize:13, color:T.sub, lineHeight:1.7, maxWidth:480 }}>
+                Add notes and voice settings for each agent. Changes are reflected live in the composed prompt.
+              </p>
+              <button
+                onClick={exportAllPrompts}
+                title="Download all five composed prompts as .md"
+                style={{ flexShrink:0, padding:"7px 14px", borderRadius:6, background:"#062b1e", border:"1px solid #0fe89830", color:"#0fe898", fontSize:11, cursor:"pointer", fontFamily:T.mono, letterSpacing:"0.06em", whiteSpace:"nowrap" }}
+              >
+                ⤴ Export all prompts
+              </button>
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
               {AGENTS.map(a => (
@@ -1241,6 +1284,63 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Composed prompt preview + per-agent export */}
+                  <div style={{ borderTop:`1px solid ${T.bdr}`, marginTop:14, paddingTop:12 }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: expandedPrompt === a.id ? 10 : 0 }}>
+                      <button
+                        onClick={() => setExpandedPrompt(expandedPrompt === a.id ? null : a.id)}
+                        style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:6, padding:0 }}
+                      >
+                        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em" }}>
+                          COMPOSED PROMPT
+                        </span>
+                        <span style={{ fontSize:9, color:T.meta }}>
+                          {expandedPrompt === a.id ? "▲" : "▼"}
+                        </span>
+                      </button>
+                      <div style={{ display:"flex", gap:6 }}>
+                        {/* Copy this agent's prompt */}
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(buildComposedPrompt(a.id));
+                          }}
+                          title="Copy composed prompt"
+                          style={{ padding:"3px 10px", borderRadius:4, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:10, cursor:"pointer", fontFamily:T.mono }}
+                        >
+                          ⎘ copy
+                        </button>
+                        {/* Export this agent's prompt as .txt */}
+                        <button
+                          onClick={() => {
+                            const text = buildComposedPrompt(a.id);
+                            const blob = new Blob([text], { type:"text/plain" });
+                            const url = URL.createObjectURL(blob);
+                            const el = document.createElement("a");
+                            el.href = url; el.download = `${a.id}-prompt.txt`; el.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                          title="Download as .txt"
+                          style={{ padding:"3px 10px", borderRadius:4, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:10, cursor:"pointer", fontFamily:T.mono }}
+                        >
+                          ⤴ .txt
+                        </button>
+                      </div>
+                    </div>
+                    {expandedPrompt === a.id && (
+                      <pre style={{
+                        margin:0, padding:"12px 14px",
+                        background:T.bg, border:`1px solid ${T.bdr2}`,
+                        borderLeft:`3px solid ${a.color}50`,
+                        borderRadius:"0 6px 6px 0",
+                        fontFamily:T.mono, fontSize:11, color:"#aaa",
+                        lineHeight:1.65, whiteSpace:"pre-wrap",
+                        wordBreak:"break-word", maxHeight:280, overflowY:"auto",
+                      }}>
+                        {buildComposedPrompt(a.id)}
+                      </pre>
+                    )}
                   </div>
                 </div>
               ))}
