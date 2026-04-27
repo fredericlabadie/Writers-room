@@ -24,6 +24,8 @@ export interface Message {
   citations?: ArtifactCitation[];
   retrieval_debug?: RetrievalDebugInfo;
   artifact_ids?: string[];
+  section_id?: string | null;
+  section_name?: string | null;
   user_id?: string;
   user_name?: string;
   user_avatar?: string;
@@ -93,4 +95,33 @@ export interface RetrievalDebugInfo {
   retrievedCount: number;
   usedArtifactIds: string[];
   maxScore: number;
+}
+
+export interface SectionMoodProfile {
+  moodLabel: string;
+  descriptors: string[];
+  guidance: string;
+  source: "spotify_audio_features" | "spotify_metadata_fallback";
+  metrics?: {
+    valence?: number;
+    energy?: number;
+    danceability?: number;
+    acousticness?: number;
+    instrumentalness?: number;
+    tempo?: number;
+  };
+}
+
+export interface RoomSection {
+  id: string;
+  room_id: string;
+  name: string;
+  created_by: string | null;
+  spotify_url: string | null;
+  spotify_track_id: string | null;
+  spotify_track_name: string | null;
+  spotify_artist_name: string | null;
+  mood_profile: SectionMoodProfile | null;
+  created_at: string;
+  updated_at: string;
 }

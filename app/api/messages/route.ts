@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabase
     .from("messages")
-    .select(`*, profiles (name, avatar_url)`)
+    .select(`*, profiles (name, avatar_url), room_sections (name)`)
     .eq("room_id", roomId)
     .order("created_at", { ascending: true })
     .limit(200);
@@ -43,6 +43,7 @@ export async function GET(req: Request) {
   const withArtifacts = (data ?? []).map((msg: any) => ({
     ...msg,
     artifact_ids: map.get(msg.id) ?? [],
+    section_name: msg.room_sections?.name ?? null,
   }));
   return NextResponse.json(withArtifacts);
 }
@@ -54,16 +55,26 @@ export async function POST(req: Request) {
   const writeError = assertWriteAllowed(actor);
   if (writeError) return writeError;
 
-  const { roomId, content, artifactIds } = await req.json();
+  const { roomId, content, artifactIds, sectionId } = await req.json();
   if (!roomId || !content) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
   const supabase = createSupabaseServiceClient();
   const canAccess = await verifyRoomAccess(supabase, roomId, actor);
   if (!canAccess) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  if (sectionId) {
+    const { data: section } = await supabase
+      .from("room_sections")
+      .select("id")
+      .eq("id", sectionId)
+      .eq("room_id", roomId)
+      .single();
+    if (!section) return NextResponse.json({ error: "Invalid sectionId" }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from("messages")
-    .insert({ room_id: roomId, role: "user", user_id: actor.userId, content })
+    .insert({ room_id: roomId, role: "user", user_id: actor.userId, content, section_id: sectionId ?? null })
     .select()
     .single();
 

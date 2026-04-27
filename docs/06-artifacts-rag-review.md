@@ -31,6 +31,8 @@ In `.env.local` and Vercel project env vars:
 ```env
 REVIEW_MODE_ENABLED=true
 REVIEW_TOKEN_SECRET=use-a-long-random-secret
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 ```
 
 You can generate a secret with:
@@ -66,7 +68,23 @@ Each agent reply now includes a small retrieval debug line (`mode`, chunks used,
 
 ---
 
-## 6.4 Create a review token for AI auditors
+## 6.4 Section tone from Spotify links
+
+Inside a room composer:
+
+1. Add/select a section in `Section Tone`
+2. Paste a Spotify track link
+3. Click `EXTRACT MOOD`
+4. The extracted mood profile is injected when sending prompts with that section selected
+
+Supported links:
+
+- `https://open.spotify.com/track/...`
+- `spotify:track:...`
+
+---
+
+## 6.5 Create a review token for AI auditors
 
 Call:
 
@@ -85,7 +103,7 @@ Share the review URL with Claude/other AIs.
 
 ---
 
-## 6.5 Validate end-to-end
+## 6.6 Validate end-to-end
 
 - Upload `txt/md/pdf/docx` and image files successfully
 - Confirm `artifacts.parse_status` becomes `ready` for docs/images
@@ -96,12 +114,13 @@ Share the review URL with Claude/other AIs.
 - Confirm non-members cannot list/upload artifacts.
 - Confirm non-owners cannot preview chunks, re-index, or delete artifacts.
 - Confirm owners can preview chunks and re-index failed artifacts.
+- Create a section, extract mood from a Spotify track, and verify section tone appears in generated responses.
 - Confirm review token grants read access and expires correctly
 - Confirm write attempts fail when token scope is read-only
 
 ---
 
-## 6.6 Troubleshooting retrieval quality
+## 6.7 Troubleshooting retrieval quality
 
 - **No chunks retrieved**
   - Lower threshold (for example `0.14 -> 0.08`).

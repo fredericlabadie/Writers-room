@@ -98,6 +98,7 @@ export async function POST(req: Request) {
     history: Array<{ role: string; persona?: string; content: string; user_name?: string }>;
     retrieval?: Partial<RetrievalSettings>;
     selectedArtifactIds?: string[]; // legacy
+    sectionId?: string | null;
   };
   const { personaId, userMessage, roomId, history } = body;
 
@@ -123,6 +124,29 @@ export async function POST(req: Request) {
       ? body.selectedArtifactIds
       : [];
 
+  let sectionToneContext = "";
+  if (body.sectionId) {
+    const { data: section } = await supabase
+      .from("room_sections")
+      .select("id, name, mood_profile, spotify_track_name, spotify_artist_name")
+      .eq("id", body.sectionId)
+      .eq("room_id", roomId)
+      .single();
+    if (section) {
+      const mood = section.mood_profile as any;
+      const descriptors = Array.isArray(mood?.descriptors) ? mood.descriptors.join(", ") : "";
+      sectionToneContext = [
+        `Section: ${section.name}`,
+        mood?.moodLabel ? `Mood: ${mood.moodLabel}` : "",
+        descriptors ? `Descriptors: ${descriptors}` : "",
+        mood?.guidance ? `Guidance: ${mood.guidance}` : "",
+        section.spotify_track_name ? `Song: ${section.spotify_track_name}${section.spotify_artist_name ? ` — ${section.spotify_artist_name}` : ""}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+  }
+
   const retrieved = await retrieveRelevantChunks({
     supabase,
     roomId,
@@ -136,8 +160,10 @@ export async function POST(req: Request) {
   const artifactContext = retrieved
     .map((chunk, i) => `[${i + 1}] ${chunk.citation.artifactName} (chunk ${chunk.citation.chunkIndex}, score ${chunk.citation.score})\n${chunk.content}`)
     .join("\n\n");
-
-  const prompt = buildPrompt(userMessage, history, persona.name, artifactContext);
+  const combinedContext = [artifactContext, sectionToneContext ? `Section tone context:\n${sectionToneContext}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+  const prompt = buildPrompt(userMessage, history, persona.name, combinedContext);
 
   try {
     const message = await anthropic.messages.create({
@@ -167,6 +193,7 @@ export async function POST(req: Request) {
       content: text,
       citations,
       retrieval_debug: retrievalDebug,
+      section_id: body.sectionId ?? null,
     });
 
     return NextResponse.json({ text, citations, retrieval: retrievalDebug });

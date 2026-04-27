@@ -59,10 +59,32 @@ alter table messages
 alter table messages
   add column if not exists retrieval_debug jsonb;
 
+-- Section-level tone controls powered by Spotify mood extraction
+create table if not exists room_sections (
+  id uuid default gen_random_uuid() primary key,
+  room_id uuid not null references rooms(id) on delete cascade,
+  name text not null,
+  created_by text references profiles(id) on delete set null,
+  spotify_url text,
+  spotify_track_id text,
+  spotify_track_name text,
+  spotify_artist_name text,
+  mood_profile jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (room_id, name)
+);
+
+create index if not exists room_sections_room_id_idx on room_sections (room_id);
+
+alter table messages
+  add column if not exists section_id uuid references room_sections(id) on delete set null;
+
 -- Enable RLS (service-role key bypasses this in API routes)
 alter table artifacts enable row level security;
 alter table message_artifacts enable row level security;
 alter table artifact_chunks enable row level security;
+alter table room_sections enable row level security;
 
 -- Basic room-member policies
 drop policy if exists "room_members_can_read_artifacts" on artifacts;
@@ -110,6 +132,30 @@ create policy "room_members_can_read_artifact_chunks"
       select 1
       from room_members rm
       where rm.room_id = artifact_chunks.room_id
+        and rm.user_id = auth.uid()::text
+    )
+  );
+
+drop policy if exists "room_members_can_read_sections" on room_sections;
+create policy "room_members_can_read_sections"
+  on room_sections for select
+  using (
+    exists (
+      select 1
+      from room_members rm
+      where rm.room_id = room_sections.room_id
+        and rm.user_id = auth.uid()::text
+    )
+  );
+
+drop policy if exists "room_members_can_insert_sections" on room_sections;
+create policy "room_members_can_insert_sections"
+  on room_sections for insert
+  with check (
+    exists (
+      select 1
+      from room_members rm
+      where rm.room_id = room_sections.room_id
         and rm.user_id = auth.uid()::text
     )
   );

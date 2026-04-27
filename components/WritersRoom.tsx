@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
-import type { Artifact, Message, RetrievalMode, Room, PersonaId } from "@/types";
+import type { Artifact, Message, RetrievalMode, Room, PersonaId, RoomSection } from "@/types";
 
 interface GeneratedFile {
   filename: string;
@@ -50,6 +50,11 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [sections, setSections] = useState<RoomSection[]>([]);
+  const [selectedSectionId, setSelectedSectionId] = useState<string>("");
+  const [newSectionName, setNewSectionName] = useState("");
+  const [sectionSpotifyUrl, setSectionSpotifyUrl] = useState("");
+  const [sectionMoodBusy, setSectionMoodBusy] = useState(false);
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("room_wide");
   const [retrievalTopK, setRetrievalTopK] = useState(6);
@@ -67,6 +72,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   const [mentionQuery, setMentionQuery] = useState<{ query: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [artifactError, setArtifactError] = useState("");
+  const [sectionError, setSectionError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const artifactInputRef = useRef<HTMLInputElement>(null);
@@ -90,6 +96,12 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       .then(r => r.json())
       .then((data) => {
         if (Array.isArray(data)) setArtifacts(data);
+      });
+
+    fetch(`/api/sections?roomId=${room.id}`)
+      .then(r => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setSections(data);
       });
   }, [room.id]);
 
@@ -213,6 +225,45 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     if (openChunksArtifactId === artifactId) setOpenChunksArtifactId(null);
   };
 
+  const createSection = async () => {
+    const name = newSectionName.trim();
+    if (!name || readOnlyReview) return;
+    setSectionError("");
+    const res = await fetch("/api/sections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId: room.id, name }),
+    });
+    const payload = await res.json();
+    if (!res.ok) {
+      setSectionError(payload.error ?? "Failed to create section");
+      return;
+    }
+    setSections((prev) => [...prev, payload]);
+    setSelectedSectionId(payload.id);
+    setNewSectionName("");
+  };
+
+  const applySpotifyMood = async () => {
+    if (!selectedSectionId || !sectionSpotifyUrl.trim() || readOnlyReview) return;
+    setSectionMoodBusy(true);
+    setSectionError("");
+    const res = await fetch(`/api/sections/${selectedSectionId}/mood`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spotifyUrl: sectionSpotifyUrl.trim() }),
+    });
+    const payload = await res.json();
+    setSectionMoodBusy(false);
+    if (!res.ok) {
+      setSectionError(payload.error ?? "Failed to extract song mood");
+      return;
+    }
+    if (payload.section) {
+      setSections((prev) => prev.map((s) => (s.id === payload.section.id ? payload.section : s)));
+    }
+  };
+
   const loadArtifactChunks = async (artifactId: string) => {
     if (!ownerCanMaintainArtifacts) return;
     if (openChunksArtifactId === artifactId) {
@@ -269,7 +320,12 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomId: room.id, content: text, artifactIds: selectedArtifactIds }),
+      body: JSON.stringify({
+        roomId: room.id,
+        content: text,
+        artifactIds: selectedArtifactIds,
+        sectionId: selectedSectionId || null,
+      }),
     });
     if (!res.ok) {
       pushSystemMessage("Failed to save your message. Please retry.");
@@ -281,6 +337,8 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       ...saved,
       role: "user",
       artifact_ids: selectedArtifactIds,
+      section_id: selectedSectionId || null,
+      section_name: sections.find((s) => s.id === selectedSectionId)?.name ?? null,
       user_name: currentUser.name,
       user_avatar: currentUser.image,
     };
@@ -324,6 +382,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
               threshold: retrievalThreshold,
               selectedArtifactIds,
             },
+            sectionId: selectedSectionId || null,
           }),
         });
         const payload = await agentRes.json();
@@ -338,6 +397,8 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
           content: agentText,
           citations: Array.isArray(citations) ? citations : [],
           retrieval_debug: retrieval ?? undefined,
+          section_id: selectedSectionId || null,
+          section_name: sections.find((s) => s.id === selectedSectionId)?.name ?? null,
           created_at: now(),
         };
         setMessages(prev => [...prev, agentMsg]);
@@ -355,6 +416,8 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     room.id,
     currentUser,
     selectedArtifactIds,
+    selectedSectionId,
+    sections,
     retrievalMode,
     retrievalTopK,
     retrievalThreshold,
@@ -391,6 +454,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     !mentionQuery || p.handle.startsWith(mentionQuery.query.toLowerCase())
   );
   const artifactNameMap = new Map(artifacts.map((a) => [a.id, a.name]));
+  const selectedSection = sections.find((s) => s.id === selectedSectionId) ?? null;
 
   return (
     <div style={{
@@ -655,6 +719,11 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                       {renderContent(displayContent)}
                     </div>
                   )}
+                  {msg.section_name && (
+                    <div style={{ marginTop: "6px", fontSize: "10px", color: "#a78bfa", fontFamily: "var(--font-mono)" }}>
+                      section: {msg.section_name}
+                    </div>
+                  )}
                   {!!generatedFiles.length && (
                     <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
                       {generatedFiles.map((file) => (
@@ -736,6 +805,11 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                       fontSize: "14px", color: "#d4d4d4", lineHeight: "1.65", whiteSpace: "pre-wrap",
                     }}>
                       {renderContent(displayContent)}
+                    </div>
+                  )}
+                  {msg.section_name && (
+                    <div style={{ marginTop: "6px", fontSize: "10px", color: "#a78bfa", fontFamily: "var(--font-mono)" }}>
+                      section: {msg.section_name}
                     </div>
                   )}
                   {!!generatedFiles.length && (
@@ -855,6 +929,69 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       {/* Input */}
       <div style={{ padding: "16px 24px", borderTop: "1px solid #1e1e1e", background: "#0d0d0d" }}>
         <div style={{ position: "relative" }}>
+          <div style={{
+            marginBottom: "8px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            flexWrap: "wrap",
+            fontSize: "11px",
+            color: "#777",
+            fontFamily: "var(--font-mono)",
+          }}>
+            <span>Section Tone</span>
+            <select
+              value={selectedSectionId}
+              onChange={(e) => setSelectedSectionId(e.target.value)}
+              disabled={readOnlyReview}
+              style={{ background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
+            >
+              <option value="">none</option>
+              {sections.map((section) => (
+                <option key={section.id} value={section.id}>
+                  {section.name}
+                </option>
+              ))}
+            </select>
+            <input
+              value={newSectionName}
+              onChange={(e) => setNewSectionName(e.target.value)}
+              placeholder="new section"
+              disabled={readOnlyReview}
+              style={{ width: "120px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
+            />
+            <button
+              onClick={() => void createSection()}
+              disabled={readOnlyReview || !newSectionName.trim()}
+              style={{ background: "none", border: "1px solid #2a2a2a", color: "#aaa", borderRadius: "5px", fontSize: "10px", padding: "2px 6px", fontFamily: "var(--font-mono)" }}
+            >
+              ADD SECTION
+            </button>
+            {selectedSection && (
+              <>
+                <input
+                  value={sectionSpotifyUrl}
+                  onChange={(e) => setSectionSpotifyUrl(e.target.value)}
+                  placeholder="spotify track link"
+                  disabled={readOnlyReview}
+                  style={{ width: "180px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
+                />
+                <button
+                  onClick={() => void applySpotifyMood()}
+                  disabled={readOnlyReview || !sectionSpotifyUrl.trim() || sectionMoodBusy}
+                  style={{ background: "none", border: "1px solid #2d4f8a", color: "#60a5fa", borderRadius: "5px", fontSize: "10px", padding: "2px 6px", fontFamily: "var(--font-mono)" }}
+                >
+                  {sectionMoodBusy ? "ANALYZING..." : "EXTRACT MOOD"}
+                </button>
+              </>
+            )}
+            {selectedSection?.mood_profile?.moodLabel && (
+              <span style={{ color: "#9ca3af" }}>
+                mood: {selectedSection.mood_profile.moodLabel}
+              </span>
+            )}
+            {sectionError && <span style={{ color: "#f87171" }}>{sectionError}</span>}
+          </div>
           <div style={{
             marginBottom: "8px",
             display: "flex",

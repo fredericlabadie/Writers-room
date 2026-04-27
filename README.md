@@ -24,6 +24,7 @@ A collaborative AI writing space with multiple specialized agents. Mention agent
 - **Role-tuned generation** — each agent uses different temperature and token budgets
 - **Auto-director synthesis** — when 2+ agents are mentioned, `@director` closes with a decision and next move
 - **Artifacts + RAG** — upload book bibles/docs/images and ground replies with citations
+- **Section tone controls** — extract mood from Spotify tracks and apply tone by section
 - **AI review mode** — share signed, scoped review links with Claude/other AIs
 
 ## Stack
