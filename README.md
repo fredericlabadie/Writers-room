@@ -2,7 +2,30 @@
 
 A collaborative AI writing space with multiple specialized agents. Mention agents by name to bring them into the conversation — they only consume tokens when called.
 
-**Live:** [writersroom.fredericlabadie.com](https://writersroom.fredericlabadie.com)
+**Live:** [writersroom.fredericlabadie.com](https://writersroom.fredericlabadie.com)  
+**Source:** [github.com/fredericlabadie/writers-room](https://github.com/fredericlabadie/writers-room)
+
+## Showcasing (portfolio)
+
+Worth doing if you use this as a sample on your site or in interviews:
+
+- **Pin** the [writers-room](https://github.com/fredericlabadie/writers-room) repo and add **topics** (e.g. `nextjs`, `typescript`, `supabase`, `ai`, `rag`).
+- Add a **screenshot or short screen recording** (login → room → @mention → reply) in the GitHub repo description, a PR description, or your personal site—avoid secrets and real user data in the capture.
+- In interviews, lead with one line: *multi-agent chat with RAG over uploads, auth, and production deploy*—then deep-link to a folder (e.g. `app/api/chat/`, `lib/artifacts/`) if they ask.
+- **Optional:** a tiny **case study** (problem → what you built → stack) on your site or in the special profile repo README; link **live** + **source** side by side.
+
+### Link from your main GitHub repo (e.g. profile `username/username`)
+
+Paste something like this into that repo’s `README.md` (or your personal site) and adjust the copy to your voice:
+
+```markdown
+### Writers Room — story & worldbuilding studio
+
+- **Live:** <https://writersroom.fredericlabadie.com>
+- **Code:** <https://github.com/fredericlabadie/writers-room>
+
+Next.js, Supabase, multi-agent @mentions, artifact RAG, NotebookLM export bridge, Vercel.
+```
 
 ## Agents
 
@@ -12,7 +35,7 @@ A collaborative AI writing space with multiple specialized agents. Mention agent
 | `@writer` | Drafts, prose, narrative development |
 | `@editor` | Revisions, structure, clarity |
 | `@critic` | Challenges assumptions, stress-tests ideas |
-| `@director` | Synthesizes, keeps the room on track |
+| `@director` | Story guide: synthesizes and keeps worldbuilding on track |
 
 ## Features
 
@@ -22,7 +45,9 @@ A collaborative AI writing space with multiple specialized agents. Mention agent
 - **Token-efficient** — agents only fire when `@`-mentioned
 - **Persistent history** — conversations saved to Supabase Postgres
 - **Role-tuned generation** — each agent uses different temperature and token budgets
-- **Auto-director synthesis** — when 2+ agents are mentioned, `@director` closes with a decision and next move
+- **Auto-guide synthesis** — when 2+ agents are mentioned, `@director` closes with a decision and next move
+- **NotebookLM bridge** — save your NotebookLM URL and export a room Lore Pack for long-term lore storage
+- **Book ↔ playlist ideas** — suggest a track list from a book, or read-alike books from a public Spotify playlist (Claude + Spotify audio features)
 - **Artifacts + RAG** — upload book bibles/docs/images and ground replies with citations
 - **Section tone controls** — extract mood from Spotify tracks and apply tone by section
 - **AI review mode** — share signed, scoped review links with Claude/other AIs

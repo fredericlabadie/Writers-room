@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
 import type { Artifact, Message, RetrievalMode, Room, PersonaId, RoomSection } from "@/types";
 
@@ -12,6 +11,37 @@ interface GeneratedFile {
 }
 
 const GENERATED_FILE_BLOCK_RE = /```file:([^\n`]+)\n([\s\S]*?)```/g;
+const TOUR_SEEN_KEY = "writers-room-tour-seen-v1";
+const NOTEBOOK_LM_LINK_KEY_PREFIX = "writers-room-notebooklm-link-";
+const NOTEBOOK_LM_UNSYNCED_KEY_PREFIX = "writers-room-notebooklm-unsynced-";
+const NOTEBOOK_LM_LAST_SYNC_KEY_PREFIX = "writers-room-notebooklm-last-sync-";
+const LORE_MESSAGE_THRESHOLD = 8;
+const TOUR_STEPS = [
+  {
+    title: "Welcome to your story studio",
+    body: "Write in plain language about your novel, setting, characters, or plot. Mention helpers only when you want specialist support.",
+  },
+  {
+    title: "Story section tone (optional)",
+    body: "Create a section like Chapter 1, Faction Lore, or Character Arc. Add a Spotify track to shape voice, pacing, and atmosphere.",
+  },
+  {
+    title: "Lore vault",
+    body: "Open FILES to upload your world bible, character notes, timelines, and research. This grounds AI responses in your canon.",
+  },
+  {
+    title: "Lore retrieval settings",
+    body: "Whole lore vault checks every source. Selected sources checks only what you tick. ADVANCED gives finer control when needed.",
+  },
+  {
+    title: "NotebookLM bridge",
+    body: "Save your NotebookLM URL, then export a Lore Pack from this room. Upload that pack into NotebookLM to keep long-term memory organized.",
+  },
+  {
+    title: "Download writing outputs",
+    body: "Ask for outlines, chapter drafts, world entries, and planning tables. Use DOWNLOAD or XLSX to keep reusable files.",
+  },
+];
 
 function getFileExt(filename: string) {
   const parts = filename.split(".");
@@ -47,7 +77,6 @@ interface Props {
 }
 
 export default function WritersRoom({ room, currentUser, userRole, reviewScope = null }: Props) {
-  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [sections, setSections] = useState<RoomSection[]>([]);
@@ -68,11 +97,41 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   const [reindexingArtifactId, setReindexingArtifactId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [postingMessage, setPostingMessage] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [mentionQuery, setMentionQuery] = useState<{ query: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [artifactError, setArtifactError] = useState("");
   const [sectionError, setSectionError] = useState("");
+  const [notebookLmUrl, setNotebookLmUrl] = useState("");
+  const [notebookStatus, setNotebookStatus] = useState("");
+  const [showNotebookGuide, setShowNotebookGuide] = useState(false);
+  const [notebookGuideCopied, setNotebookGuideCopied] = useState(false);
+  const [unsyncedLoreChanges, setUnsyncedLoreChanges] = useState(0);
+  const [messagesSinceLoreSync, setMessagesSinceLoreSync] = useState(0);
+  const [lastLoreSyncAt, setLastLoreSyncAt] = useState("");
+  const [showTourPrompt, setShowTourPrompt] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStepIdx, setTourStepIdx] = useState(0);
+  const [showBookPlaylist, setShowBookPlaylist] = useState(false);
+  const [bpMode, setBpMode] = useState<"book_to_playlist" | "playlist_to_book">("book_to_playlist");
+  const [bpBookTitle, setBpBookTitle] = useState("");
+  const [bpBookAuthor, setBpBookAuthor] = useState("");
+  const [bpBookNotes, setBpBookNotes] = useState("");
+  const [bpPlaylistUrl, setBpPlaylistUrl] = useState("");
+  const [bpBusy, setBpBusy] = useState(false);
+  const [bpError, setBpError] = useState("");
+  const [bpBookToPl, setBpBookToPl] = useState<{
+    playlistName: string;
+    rationale: string;
+    moodTags: string[];
+    tracks: Array<{ title: string; artist: string; whyItFits: string }>;
+  } | null>(null);
+  const [bpPlToBook, setBpPlToBook] = useState<{
+    rationale: string;
+    books: Array<{ title: string; author: string; whyItFits: string }>;
+  } | null>(null);
+  const [bpDigestSummary, setBpDigestSummary] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const artifactInputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +168,30 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  useEffect(() => {
+    if (readOnlyReview) return;
+    try {
+      const hasSeenTour = localStorage.getItem(TOUR_SEEN_KEY) === "true";
+      if (!hasSeenTour) setShowTourPrompt(true);
+    } catch {
+      // localStorage may be unavailable in restricted environments
+    }
+  }, [readOnlyReview]);
+
+  useEffect(() => {
+    if (readOnlyReview) return;
+    try {
+      const stored = localStorage.getItem(`${NOTEBOOK_LM_LINK_KEY_PREFIX}${room.id}`) ?? "";
+      setNotebookLmUrl(stored);
+      const storedUnsynced = Number(localStorage.getItem(`${NOTEBOOK_LM_UNSYNCED_KEY_PREFIX}${room.id}`) ?? "0");
+      setUnsyncedLoreChanges(Number.isFinite(storedUnsynced) ? Math.max(0, storedUnsynced) : 0);
+      const storedLastSync = localStorage.getItem(`${NOTEBOOK_LM_LAST_SYNC_KEY_PREFIX}${room.id}`) ?? "";
+      setLastLoreSyncAt(storedLastSync);
+    } catch {
+      // localStorage may be unavailable
+    }
+  }, [room.id, readOnlyReview]);
+
   function now() {
     return new Date().toISOString();
   }
@@ -125,6 +208,149 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       created_at: now(),
     };
     setMessages((prev) => [...prev, sysMsg]);
+  };
+
+  const markTourSeen = () => {
+    try {
+      localStorage.setItem(TOUR_SEEN_KEY, "true");
+    } catch {
+      // noop
+    }
+  };
+
+  const startTour = () => {
+    setShowTourPrompt(false);
+    setTourStepIdx(0);
+    setTourOpen(true);
+    markTourSeen();
+  };
+
+  const skipTour = () => {
+    setShowTourPrompt(false);
+    setTourOpen(false);
+    markTourSeen();
+  };
+
+  const saveNotebookLmLink = () => {
+    if (readOnlyReview) return;
+    const trimmed = notebookLmUrl.trim();
+    try {
+      localStorage.setItem(`${NOTEBOOK_LM_LINK_KEY_PREFIX}${room.id}`, trimmed);
+      setNotebookStatus(trimmed ? "NotebookLM link saved for this room." : "NotebookLM link cleared.");
+      setTimeout(() => setNotebookStatus(""), 2400);
+    } catch {
+      setNotebookStatus("Could not save NotebookLM link in this browser.");
+      setTimeout(() => setNotebookStatus(""), 2400);
+    }
+  };
+
+  const persistLoreSyncMeta = (unsyncedCount: number, lastSyncIso?: string) => {
+    try {
+      localStorage.setItem(`${NOTEBOOK_LM_UNSYNCED_KEY_PREFIX}${room.id}`, String(Math.max(0, unsyncedCount)));
+      if (lastSyncIso !== undefined) {
+        localStorage.setItem(`${NOTEBOOK_LM_LAST_SYNC_KEY_PREFIX}${room.id}`, lastSyncIso);
+      }
+    } catch {
+      // localStorage may be unavailable
+    }
+  };
+
+  const registerLoreChange = () => {
+    setUnsyncedLoreChanges((prev) => {
+      const next = prev + 1;
+      persistLoreSyncMeta(next);
+      return next;
+    });
+  };
+
+  const markLoreSynced = (statusText = "Lore sync marked complete.") => {
+    const nowIso = new Date().toISOString();
+    setUnsyncedLoreChanges(0);
+    setMessagesSinceLoreSync(0);
+    setLastLoreSyncAt(nowIso);
+    persistLoreSyncMeta(0, nowIso);
+    setNotebookStatus(statusText);
+    setTimeout(() => setNotebookStatus(""), 2400);
+  };
+
+  const buildLorePack = () => {
+    const sectionLines = sections.length
+      ? sections.map((section) => {
+        const moodLabel = section.mood_profile?.moodLabel ? ` | mood: ${section.mood_profile.moodLabel}` : "";
+        const moodGuidance = section.mood_profile?.guidance ? `\n  guidance: ${section.mood_profile.guidance}` : "";
+        return `- ${section.name}${moodLabel}${moodGuidance}`;
+      }).join("\n")
+      : "- none yet";
+
+    const artifactLines = artifacts.length
+      ? artifacts.map((artifact) => `- ${artifact.name} (${artifact.kind}, ${artifact.parse_status})`).join("\n")
+      : "- none yet";
+
+    const recentMessages = messages
+      .filter((message) => message.role === "user" || message.role === "agent")
+      .slice(-60)
+      .map((message) => {
+        const speaker = message.role === "user"
+          ? message.user_name ?? "user"
+          : `agent:${message.persona ?? "assistant"}`;
+        const sectionTag = message.section_name ? ` [section: ${message.section_name}]` : "";
+        return `### ${speaker}${sectionTag}\n${stripGeneratedFileBlocks(message.content).trim() || "(no text)"}`;
+      })
+      .join("\n\n");
+
+    return [
+      `# ${room.name} - Lore Pack`,
+      "",
+      `Generated: ${new Date().toISOString()}`,
+      room.description ? `Room notes: ${room.description}` : "",
+      "",
+      "## Story World Snapshot",
+      sectionLines,
+      "",
+      "## Lore Sources",
+      artifactLines,
+      "",
+      "## Recent Story Development",
+      recentMessages || "_No chat messages yet._",
+      "",
+      "## Suggested NotebookLM Prompt",
+      "Use this lore pack as the canonical world reference. Prioritize consistency across character voice, timeline continuity, faction rules, and setting details.",
+      "",
+    ].filter(Boolean).join("\n");
+  };
+
+  const exportLorePack = () => {
+    const content = buildLorePack();
+    const safeRoom = room.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "story-world";
+    const filename = `${safeRoom}-lore-pack.md`;
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    markLoreSynced(`Exported ${filename}`);
+  };
+
+  const openNotebookLm = () => {
+    const url = notebookLmUrl.trim() || "https://notebooklm.google.com/";
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const notebookImportPrompt = "Use this lore pack as the canonical world reference. Prioritize consistency across character voice, timeline continuity, faction rules, and setting details.";
+
+  const copyNotebookPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(notebookImportPrompt);
+      setNotebookGuideCopied(true);
+      setTimeout(() => setNotebookGuideCopied(false), 1800);
+    } catch {
+      setNotebookStatus("Could not copy prompt automatically.");
+      setTimeout(() => setNotebookStatus(""), 2200);
+    }
   };
 
   const downloadFile = async (file: GeneratedFile, format: "native" | "xlsx" = "native") => {
@@ -202,6 +428,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       if (!res.ok) throw new Error(payload.error ?? "Upload failed");
       if (payload.artifact) {
         setArtifacts((prev) => [payload.artifact, ...prev]);
+        registerLoreChange();
       }
     } catch (err) {
       setArtifactError(err instanceof Error ? err.message : "Upload failed");
@@ -223,6 +450,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       return next;
     });
     if (openChunksArtifactId === artifactId) setOpenChunksArtifactId(null);
+    registerLoreChange();
   };
 
   const createSection = async () => {
@@ -242,6 +470,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     setSections((prev) => [...prev, payload]);
     setSelectedSectionId(payload.id);
     setNewSectionName("");
+    registerLoreChange();
   };
 
   const applySpotifyMood = async () => {
@@ -308,44 +537,64 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       return next;
     });
     if (openChunksArtifactId === artifactId) setOpenChunksArtifactId(null);
+    registerLoreChange();
   };
 
   const send = useCallback(async () => {
     const text = input.trim();
-    if (readOnlyReview || !text || Object.keys(loading).length > 0) return;
+    if (readOnlyReview || !text || Object.keys(loading).length > 0 || postingMessage) return;
     setInput("");
     setMentionQuery(null);
+    setPostingMessage(true);
 
-    // Save user message to DB
-    const res = await fetch("/api/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        roomId: room.id,
-        content: text,
-        artifactIds: selectedArtifactIds,
-        sectionId: selectedSectionId || null,
-      }),
-    });
-    if (!res.ok) {
-      pushSystemMessage("Failed to save your message. Please retry.");
-      return;
+    let userMsg: Message;
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomId: room.id,
+          content: text,
+          artifactIds: selectedArtifactIds,
+          sectionId: selectedSectionId || null,
+        }),
+      });
+      if (!res.ok) {
+        pushSystemMessage("Failed to save your message. Please retry.");
+        setInput(text);
+        return;
+      }
+      const saved = await res.json();
+      setMessagesSinceLoreSync((prev) => {
+        const next = prev + 1;
+        if (next >= LORE_MESSAGE_THRESHOLD) {
+          registerLoreChange();
+          return 0;
+        }
+        return next;
+      });
+
+      userMsg = {
+        ...saved,
+        role: "user",
+        artifact_ids: selectedArtifactIds,
+        section_id: selectedSectionId || null,
+        section_name: sections.find((s) => s.id === selectedSectionId)?.name ?? null,
+        user_name: currentUser.name,
+        user_avatar: currentUser.image,
+      };
+      setMessages(prev => [...prev, userMsg]);
+    } finally {
+      setPostingMessage(false);
     }
-    const saved = await res.json();
-
-    const userMsg: Message = {
-      ...saved,
-      role: "user",
-      artifact_ids: selectedArtifactIds,
-      section_id: selectedSectionId || null,
-      section_name: sections.find((s) => s.id === selectedSectionId)?.name ?? null,
-      user_name: currentUser.name,
-      user_avatar: currentUser.image,
-    };
-    setMessages(prev => [...prev, userMsg]);
 
     const mentions = parseMentions(text);
-    if (!mentions.length) return;
+    if (!mentions.length) {
+      pushSystemMessage(
+        "Your message is saved. To get an AI reply, add a helper such as @writer, @editor, or @researcher — or tap a chip above.",
+      );
+      return;
+    }
 
     // Auto-synthesize when multiple agents are asked to weigh in.
     const orderedMentions = [...mentions];
@@ -357,7 +606,6 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     orderedMentions.forEach(id => { newLoading[id] = true; });
     setLoading(newLoading);
 
-    // Build history snapshot for context
     const historySnapshot = [...messages, userMsg].map(m => ({
       role: m.role,
       persona: m.persona,
@@ -365,7 +613,6 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       user_name: m.user_name,
     }));
 
-    // Call agents sequentially so each sees previous responses
     for (const personaId of orderedMentions) {
       try {
         const agentRes = await fetch("/api/chat", {
@@ -412,6 +659,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   }, [
     input,
     loading,
+    postingMessage,
     messages,
     room.id,
     currentUser,
@@ -436,6 +684,54 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
     navigator.clipboard.writeText(room.invite_code ?? "");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const spotifyTrackSearchUrl = (artist: string, title: string) =>
+    `https://open.spotify.com/search/${encodeURIComponent(`${artist} ${title}`)}`;
+
+  const openLibrarySearchUrl = (title: string, author: string) =>
+    `https://openlibrary.org/search?q=${encodeURIComponent(`${title} ${author}`)}`;
+
+  const runBookPlaylistTool = async () => {
+    if (readOnlyReview) return;
+    setBpBusy(true);
+    setBpError("");
+    setBpBookToPl(null);
+    setBpPlToBook(null);
+    setBpDigestSummary(null);
+    try {
+      const res = await fetch("/api/recommendations/book-playlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          bpMode === "book_to_playlist"
+            ? {
+                mode: "book_to_playlist",
+                bookTitle: bpBookTitle.trim(),
+                bookAuthor: bpBookAuthor.trim(),
+                bookNotes: bpBookNotes.trim() || undefined,
+              }
+            : { mode: "playlist_to_book", spotifyPlaylistUrl: bpPlaylistUrl.trim() },
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      if (data.mode === "book_to_playlist") {
+        setBpBookToPl(data.result);
+      } else {
+        setBpPlToBook(data.result);
+        const d = data.digest as { playlistName?: string; mood?: { moodLabel?: string }; analyzedTrackCount?: number } | undefined;
+        if (d) {
+          setBpDigestSummary(
+            `${d.playlistName ?? "Playlist"} · ${d.mood?.moodLabel ?? ""} · ${d.analyzedTrackCount ?? 0} tracks analyzed for sound`,
+          );
+        }
+      }
+    } catch (e) {
+      setBpError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBpBusy(false);
+    }
   };
 
   const renderContent = (text: string) => {
@@ -468,26 +764,37 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
         position: "sticky", top: 0, zIndex: 50,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-          <button onClick={() => router.push("/rooms")} style={{
-            background: "none", border: "none", color: "#555", fontSize: "18px", padding: "0 4px",
-          }}>←</button>
           <div>
             <div style={{ fontSize: "15px", fontWeight: 600, color: "#e5e5e5" }}>{room.name}</div>
             {room.description && <div style={{ fontSize: "11px", color: "#555" }}>{room.description}</div>}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <button onClick={() => { setTourStepIdx(0); setTourOpen(true); }} style={{
+            background: "none", border: "1px solid #2a2a2a", color: "#888",
+            padding: "4px 10px", borderRadius: "6px", fontSize: "11px",
+            fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
+          }}>
+            TOUR
+          </button>
           {reviewScope?.read && (
             <span style={{ fontSize: "10px", color: readOnlyReview ? "#fbbf24" : "#34d399", fontFamily: "var(--font-mono)" }}>
               REVIEW {readOnlyReview ? "READ-ONLY" : "WRITE"}
             </span>
           )}
-          <button onClick={() => setShowArtifacts((v) => !v)} style={{
+          <button onClick={() => { setShowArtifacts((v) => !v); if (!showArtifacts) setShowBookPlaylist(false); }} style={{
             background: "none", border: "1px solid #2a2a2a", color: showArtifacts ? "#60a5fa" : "#666",
             padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
             fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
           }}>
             {showArtifacts ? "HIDE FILES" : "FILES"}
+          </button>
+          <button onClick={() => { setShowBookPlaylist((v) => !v); if (!showBookPlaylist) setShowArtifacts(false); }} style={{
+            background: "none", border: "1px solid #2a2a2a", color: showBookPlaylist ? "#34d399" : "#666",
+            padding: "4px 12px", borderRadius: "6px", fontSize: "11px",
+            fontFamily: "var(--font-mono)", letterSpacing: "0.06em",
+          }}>
+            {showBookPlaylist ? "HIDE BOOK↔PLAYLIST" : "BOOK↔PLAYLIST"}
           </button>
           {room.invite_code && (
             <button onClick={copyInvite} style={{
@@ -508,7 +815,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "space-between" }}>
             <span style={{ fontSize: "11px", color: "#888", fontFamily: "var(--font-mono)" }}>
-              ROOM ARTIFACTS ({artifacts.length})
+              LORE SOURCES ({artifacts.length})
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <input
@@ -537,12 +844,12 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
           </div>
           {!ownerCanMaintainArtifacts && (
             <div style={{ color: "#777", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
-              Chunk preview, re-index, and delete are owner-only actions.
+              Chunk preview, re-index, and delete are owner-only tools.
             </div>
           )}
           {retrievalMode !== "selected_only" && (
             <div style={{ color: "#777", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
-              Artifact selection applies only in selected-only retrieval mode.
+              Source selection applies only in selected sources mode.
             </div>
           )}
           {artifactError && <div style={{ color: "#f87171", fontSize: "12px" }}>{artifactError}</div>}
@@ -556,7 +863,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                   <button
                     onClick={() => toggleArtifactSelection(artifact.id)}
                     disabled={retrievalMode !== "selected_only"}
-                    title={retrievalMode === "selected_only" ? "Select for retrieval" : "Switch retrieval mode to selected-only"}
+                    title={retrievalMode === "selected_only" ? "Select source for lore retrieval" : "Switch retrieval mode to selected sources"}
                     style={{
                       background: "none",
                       border: "none",
@@ -646,8 +953,498 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
               </div>
             ))}
             {!artifacts.length && (
-              <div style={{ color: "#666", fontSize: "12px" }}>No artifacts yet. Upload a book bible or supporting docs.</div>
+              <div style={{ color: "#666", fontSize: "12px" }}>No lore sources yet. Upload your world bible, character notes, timelines, or research.</div>
             )}
+          </div>
+          <div style={{
+            marginTop: "6px",
+            borderTop: "1px solid #1f1f1f",
+            paddingTop: "10px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}>
+            <span style={{ fontSize: "11px", color: "#888", fontFamily: "var(--font-mono)" }}>
+              NOTEBOOKLM BRIDGE
+            </span>
+            <div style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>
+              Save your NotebookLM notebook link, then export a Lore Pack to upload as a source there.
+            </div>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                value={notebookLmUrl}
+                onChange={(e) => setNotebookLmUrl(e.target.value)}
+                placeholder="https://notebooklm.google.com/..."
+                disabled={readOnlyReview}
+                style={{
+                  minWidth: "240px",
+                  flex: 1,
+                  background: "#111",
+                  color: "#bbb",
+                  border: "1px solid #2a2a2a",
+                  borderRadius: "6px",
+                  padding: "6px 8px",
+                  fontSize: "12px",
+                }}
+              />
+              <button
+                onClick={saveNotebookLmLink}
+                disabled={readOnlyReview}
+                style={{
+                  background: "none",
+                  border: "1px solid #2a2a2a",
+                  color: "#aaa",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  padding: "6px 10px",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                SAVE LINK
+              </button>
+              <button
+                onClick={openNotebookLm}
+                style={{
+                  background: "none",
+                  border: "1px solid #2d4f8a",
+                  color: "#60a5fa",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  padding: "6px 10px",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                OPEN NOTEBOOKLM
+              </button>
+              <button
+                onClick={() => setShowNotebookGuide(true)}
+                style={{
+                  background: "none",
+                  border: "1px solid #2a2a2a",
+                  color: "#d1d5db",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  padding: "6px 10px",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                GUIDED SYNC
+              </button>
+              <button
+                onClick={exportLorePack}
+                style={{
+                  background: "#1d3461",
+                  border: "1px solid #2d4f8a",
+                  color: "#60a5fa",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  padding: "6px 10px",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                EXPORT LORE PACK
+              </button>
+            </div>
+            {notebookStatus && <div style={{ color: "#34d399", fontSize: "11px", fontFamily: "var(--font-mono)" }}>{notebookStatus}</div>}
+          </div>
+        </div>
+      )}
+
+      {showBookPlaylist && (
+        <div style={{
+          padding: "12px 24px", borderBottom: "1px solid #1e1e1e", background: "#0f1412",
+          display: "flex", flexDirection: "column", gap: "10px",
+        }}>
+          <span style={{ fontSize: "11px", color: "#6ee7b7", fontFamily: "var(--font-mono)" }}>
+            BOOK ↔ PLAYLIST (suggestions only — build the playlist in Spotify yourself)
+          </span>
+          <div style={{ fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>
+            Playlist from book uses AI only. Book from playlist uses a <strong>public</strong> Spotify playlist plus averaged audio features, then AI for read-alikes.
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+            <label style={{ fontSize: "11px", color: "#888", display: "flex", alignItems: "center", gap: "6px" }}>
+              <span>Mode</span>
+              <select
+                value={bpMode}
+                onChange={(e) => setBpMode(e.target.value as "book_to_playlist" | "playlist_to_book")}
+                disabled={readOnlyReview || bpBusy}
+                style={{ background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "4px 8px", fontSize: "11px" }}
+              >
+                <option value="book_to_playlist">Book → playlist ideas</option>
+                <option value="playlist_to_book">Playlist → book ideas</option>
+              </select>
+            </label>
+            <button
+              onClick={() => void runBookPlaylistTool()}
+              disabled={readOnlyReview || bpBusy || (bpMode === "book_to_playlist" && (!bpBookTitle.trim() || !bpBookAuthor.trim())) || (bpMode === "playlist_to_book" && !bpPlaylistUrl.trim())}
+              style={{
+                background: "#14532d",
+                border: "1px solid #166534",
+                color: "#6ee7b7",
+                borderRadius: "6px",
+                fontSize: "11px",
+                padding: "6px 12px",
+                fontFamily: "var(--font-mono)",
+                opacity: readOnlyReview || bpBusy ? 0.6 : 1,
+              }}
+            >
+              {bpBusy ? "WORKING…" : "GET SUGGESTIONS"}
+            </button>
+          </div>
+          {bpMode === "book_to_playlist" ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+              <input
+                value={bpBookTitle}
+                onChange={(e) => setBpBookTitle(e.target.value)}
+                placeholder="Book title"
+                disabled={readOnlyReview || bpBusy}
+                style={{ minWidth: "160px", flex: 1, background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
+              />
+              <input
+                value={bpBookAuthor}
+                onChange={(e) => setBpBookAuthor(e.target.value)}
+                placeholder="Author"
+                disabled={readOnlyReview || bpBusy}
+                style={{ minWidth: "140px", flex: 1, background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
+              />
+              <input
+                value={bpBookNotes}
+                onChange={(e) => setBpBookNotes(e.target.value)}
+                placeholder="Genre / mood notes (optional)"
+                disabled={readOnlyReview || bpBusy}
+                style={{ minWidth: "220px", flex: 2, background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
+              />
+            </div>
+          ) : (
+            <input
+              value={bpPlaylistUrl}
+              onChange={(e) => setBpPlaylistUrl(e.target.value)}
+              placeholder="Public Spotify playlist link"
+              disabled={readOnlyReview || bpBusy}
+              style={{ width: "100%", maxWidth: "560px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" }}
+            />
+          )}
+          {bpError && <div style={{ color: "#f87171", fontSize: "12px" }}>{bpError}</div>}
+          {bpDigestSummary && (
+            <div style={{ fontSize: "11px", color: "#6b7280", fontFamily: "var(--font-mono)" }}>{bpDigestSummary}</div>
+          )}
+          {bpBookToPl && (
+            <div style={{ borderTop: "1px solid #1f2f24", paddingTop: "10px" }}>
+              <div style={{ fontSize: "15px", fontWeight: 600, color: "#e5e5e5", marginBottom: "4px" }}>{bpBookToPl.playlistName}</div>
+              <p style={{ fontSize: "13px", color: "#a3a3a3", marginBottom: "8px", lineHeight: 1.5 }}>{bpBookToPl.rationale}</p>
+              {!!bpBookToPl.moodTags?.length && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
+                  {bpBookToPl.moodTags.map((tag) => (
+                    <span key={tag} style={{ fontSize: "10px", color: "#6ee7b7", border: "1px solid #14532d", borderRadius: "999px", padding: "2px 8px" }}>{tag}</span>
+                  ))}
+                </div>
+              )}
+              <ol style={{ margin: 0, paddingLeft: "18px", color: "#d1d5db", fontSize: "13px", lineHeight: 1.55 }}>
+                {bpBookToPl.tracks.map((t, i) => (
+                  <li key={`${t.artist}-${t.title}-${i}`} style={{ marginBottom: "8px" }}>
+                    <strong>{t.artist}</strong> — {t.title}
+                    <div style={{ fontSize: "12px", color: "#9ca3af" }}>{t.whyItFits}</div>
+                    <a href={spotifyTrackSearchUrl(t.artist, t.title)} target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", color: "#34d399" }}>
+                      Search on Spotify
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {bpPlToBook && (
+            <div style={{ borderTop: "1px solid #1f2f24", paddingTop: "10px" }}>
+              <p style={{ fontSize: "13px", color: "#a3a3a3", marginBottom: "10px", lineHeight: 1.5 }}>{bpPlToBook.rationale}</p>
+              <ol style={{ margin: 0, paddingLeft: "18px", color: "#d1d5db", fontSize: "13px", lineHeight: 1.55 }}>
+                {bpPlToBook.books.map((b, i) => (
+                  <li key={`${b.author}-${b.title}-${i}`} style={{ marginBottom: "8px" }}>
+                    <strong>{b.title}</strong> — {b.author}
+                    <div style={{ fontSize: "12px", color: "#9ca3af" }}>{b.whyItFits}</div>
+                    <a href={openLibrarySearchUrl(b.title, b.author)} target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", color: "#34d399" }}>
+                      Search Open Library
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!readOnlyReview && unsyncedLoreChanges > 0 && !showNotebookGuide && (
+        <div style={{
+          position: "fixed",
+          left: "16px",
+          bottom: "16px",
+          zIndex: 131,
+          width: "min(360px, calc(100vw - 24px))",
+          background: "#141414",
+          border: "1px solid #2a2a2a",
+          borderRadius: "12px",
+          padding: "12px",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        }}>
+          <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "4px" }}>
+            NOTEBOOKLM SYNC REMINDER
+          </div>
+          <div style={{ color: "#e5e5e5", fontSize: "14px", marginBottom: "6px" }}>
+            Your lore changed recently. Sync to keep NotebookLM up to date.
+          </div>
+          <div style={{ color: "#9ca3af", fontSize: "12px", lineHeight: 1.45 }}>
+            Pending updates: {unsyncedLoreChanges}
+            {lastLoreSyncAt ? ` · last sync ${new Date(lastLoreSyncAt).toLocaleString()}` : ""}
+          </div>
+          <div style={{ marginTop: "10px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              onClick={() => setShowNotebookGuide(true)}
+              style={{
+                background: "#1d3461",
+                border: "1px solid #2d4f8a",
+                color: "#60a5fa",
+                borderRadius: "6px",
+                fontSize: "11px",
+                padding: "6px 10px",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              GUIDED SYNC
+            </button>
+            <button
+              onClick={() => markLoreSynced("Marked as synced.")}
+              style={{
+                background: "none",
+                border: "1px solid #2a2a2a",
+                color: "#aaa",
+                borderRadius: "6px",
+                fontSize: "11px",
+                padding: "6px 10px",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              MARK SYNCED
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showNotebookGuide && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.5)",
+          zIndex: 135,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "14px",
+        }}>
+          <div style={{
+            width: "min(680px, 100%)",
+            maxHeight: "90vh",
+            overflow: "auto",
+            background: "#141414",
+            border: "1px solid #2a2a2a",
+            borderRadius: "12px",
+            padding: "18px",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <h3 style={{ fontSize: "18px", color: "#e5e5e5" }}>Send Lore to NotebookLM</h3>
+              <button
+                onClick={() => setShowNotebookGuide(false)}
+                style={{ background: "none", border: "none", color: "#888", fontSize: "18px", lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </div>
+            <p style={{ color: "#a3a3a3", fontSize: "13px", lineHeight: 1.5, marginBottom: "14px" }}>
+              Follow these steps once and repeat anytime your world changes.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div style={{ background: "#111", border: "1px solid #252525", borderRadius: "10px", padding: "12px" }}>
+                <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "6px" }}>STEP 1</div>
+                <div style={{ fontSize: "14px", color: "#e5e5e5", marginBottom: "6px" }}>Export your latest Lore Pack</div>
+                <div style={{ fontSize: "12px", color: "#a3a3a3", marginBottom: "8px" }}>
+                  This creates a single `.md` file with sections, lore sources, and recent story development.
+                </div>
+                <button
+                  onClick={exportLorePack}
+                  style={{
+                    background: "#1d3461",
+                    border: "1px solid #2d4f8a",
+                    color: "#60a5fa",
+                    borderRadius: "6px",
+                    fontSize: "11px",
+                    padding: "6px 10px",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  EXPORT LORE PACK
+                </button>
+              </div>
+
+              <div style={{ background: "#111", border: "1px solid #252525", borderRadius: "10px", padding: "12px" }}>
+                <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "6px" }}>STEP 2</div>
+                <div style={{ fontSize: "14px", color: "#e5e5e5", marginBottom: "6px" }}>Open your NotebookLM notebook</div>
+                <div style={{ fontSize: "12px", color: "#a3a3a3", marginBottom: "8px" }}>
+                  Create a notebook if needed, then upload the Lore Pack file as a source.
+                </div>
+                <button
+                  onClick={openNotebookLm}
+                  style={{
+                    background: "none",
+                    border: "1px solid #2d4f8a",
+                    color: "#60a5fa",
+                    borderRadius: "6px",
+                    fontSize: "11px",
+                    padding: "6px 10px",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  OPEN NOTEBOOKLM
+                </button>
+              </div>
+
+              <div style={{ background: "#111", border: "1px solid #252525", borderRadius: "10px", padding: "12px" }}>
+                <div style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)", marginBottom: "6px" }}>STEP 3</div>
+                <div style={{ fontSize: "14px", color: "#e5e5e5", marginBottom: "6px" }}>Set the notebook instruction</div>
+                <div style={{ fontSize: "12px", color: "#a3a3a3", marginBottom: "8px" }}>
+                  Paste this once into your NotebookLM instruction so lore stays consistent:
+                </div>
+                <div style={{
+                  fontSize: "12px",
+                  color: "#d1d5db",
+                  background: "#0d0d0d",
+                  border: "1px solid #222",
+                  borderRadius: "8px",
+                  padding: "8px",
+                  lineHeight: 1.45,
+                }}>
+                  {notebookImportPrompt}
+                </div>
+                <div style={{ marginTop: "8px" }}>
+                  <button
+                    onClick={() => void copyNotebookPrompt()}
+                    style={{
+                      background: "none",
+                      border: "1px solid #2a2a2a",
+                      color: notebookGuideCopied ? "#34d399" : "#aaa",
+                      borderRadius: "6px",
+                      fontSize: "11px",
+                      padding: "6px 10px",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {notebookGuideCopied ? "COPIED" : "COPY INSTRUCTION"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "12px", fontSize: "12px", color: "#9ca3af", lineHeight: 1.5 }}>
+              Tip: repeat this sync whenever you add major world changes, new chapters, or lore files.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTourPrompt && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 120,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            width: "min(520px, calc(100vw - 32px))",
+            background: "#141414", border: "1px solid #2a2a2a", borderRadius: "12px",
+            padding: "20px 18px",
+          }}>
+            <h3 style={{ fontSize: "18px", color: "#e5e5e5", marginBottom: "8px" }}>Quick walkthrough?</h3>
+            <p style={{ fontSize: "14px", color: "#a3a3a3", lineHeight: 1.5 }}>
+              Optional 60-second guide to show what each setting does in plain language.
+            </p>
+            <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
+              <button onClick={startTour} style={{
+                background: "#1d3461", border: "1px solid #2d4f8a", color: "#60a5fa",
+                borderRadius: "8px", padding: "8px 12px", fontSize: "13px",
+              }}>
+                Start walkthrough
+              </button>
+              <button onClick={skipTour} style={{
+                background: "none", border: "1px solid #2a2a2a", color: "#888",
+                borderRadius: "8px", padding: "8px 12px", fontSize: "13px",
+              }}>
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tourOpen && (
+        <div style={{
+          position: "fixed", right: "16px", bottom: "16px", zIndex: 130,
+          width: "min(420px, calc(100vw - 24px))",
+          background: "#141414", border: "1px solid #2a2a2a", borderRadius: "12px",
+          padding: "14px",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+            <span style={{ color: "#60a5fa", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
+              STEP {tourStepIdx + 1} / {TOUR_STEPS.length}
+            </span>
+            <button onClick={() => setTourOpen(false)} style={{
+              background: "none", border: "none", color: "#777", fontSize: "16px", lineHeight: 1,
+            }}>×</button>
+          </div>
+          <div style={{ fontSize: "16px", color: "#e5e5e5", fontWeight: 600, marginBottom: "6px" }}>
+            {TOUR_STEPS[tourStepIdx].title}
+          </div>
+          <div style={{ fontSize: "13px", color: "#a3a3a3", lineHeight: 1.5 }}>
+            {TOUR_STEPS[tourStepIdx].body}
+          </div>
+          <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
+            <button
+              onClick={() => setTourStepIdx((idx) => Math.max(0, idx - 1))}
+              disabled={tourStepIdx === 0}
+              style={{
+                background: "none", border: "1px solid #2a2a2a", color: "#888",
+                borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
+                opacity: tourStepIdx === 0 ? 0.5 : 1,
+              }}
+            >
+              Back
+            </button>
+            {tourStepIdx < TOUR_STEPS.length - 1 ? (
+              <button
+                onClick={() => setTourStepIdx((idx) => Math.min(TOUR_STEPS.length - 1, idx + 1))}
+                style={{
+                  background: "#1d3461", border: "1px solid #2d4f8a", color: "#60a5fa",
+                  borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
+                }}
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                onClick={() => setTourOpen(false)}
+                style={{
+                  background: "#1d3461", border: "1px solid #2d4f8a", color: "#60a5fa",
+                  borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
+                }}
+              >
+                Done
+              </button>
+            )}
+            <button
+              onClick={skipTour}
+              style={{
+                marginLeft: "auto",
+                background: "none", border: "1px solid #2a2a2a", color: "#888",
+                borderRadius: "8px", padding: "6px 10px", fontSize: "12px",
+              }}
+            >
+              Skip tour
+            </button>
           </div>
         </div>
       )}
@@ -939,7 +1736,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             color: "#777",
             fontFamily: "var(--font-mono)",
           }}>
-            <span>Section Tone</span>
+            <span>Story Section Tone</span>
             <select
               value={selectedSectionId}
               onChange={(e) => setSelectedSectionId(e.target.value)}
@@ -956,7 +1753,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             <input
               value={newSectionName}
               onChange={(e) => setNewSectionName(e.target.value)}
-              placeholder="new section"
+              placeholder="new section (ex: Chapter 1)"
               disabled={readOnlyReview}
               style={{ width: "120px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
             />
@@ -972,7 +1769,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                 <input
                   value={sectionSpotifyUrl}
                   onChange={(e) => setSectionSpotifyUrl(e.target.value)}
-                  placeholder="spotify track link"
+                  placeholder="spotify track link for section mood"
                   disabled={readOnlyReview}
                   style={{ width: "180px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
                 />
@@ -1025,8 +1822,8 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                 disabled={readOnlyReview}
                 style={{ background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
               >
-                <option value="room_wide">room-wide</option>
-                <option value="selected_only">selected-only</option>
+                <option value="room_wide">whole lore vault</option>
+                <option value="selected_only">selected sources</option>
               </select>
             </label>
             {showRetrievalSettings && (
@@ -1059,7 +1856,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
               </>
             )}
             {retrievalMode === "selected_only" && selectedArtifactIds.length === 0 && (
-              <span style={{ color: "#fbbf24" }}>Select at least one artifact</span>
+              <span style={{ color: "#fbbf24" }}>Select at least one lore source</span>
             )}
           </div>
 
@@ -1107,7 +1904,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
               disabled={readOnlyReview}
               onChange={handleInput}
               onKeyDown={onKeyDown}
-              placeholder="Type @ to call an agent..."
+              placeholder="Describe what you want to write or build (type @ for a helper)..."
               rows={1}
               style={{
                 flex: 1, background: "none", border: "none", outline: "none",
@@ -1122,24 +1919,26 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             />
             <button
               onClick={send}
-              disabled={readOnlyReview || !input.trim() || Object.keys(loading).length > 0}
+              disabled={readOnlyReview || !input.trim() || Object.keys(loading).length > 0 || postingMessage}
               style={{
-                background: Object.keys(loading).length > 0 ? "#1a1a1a" : "#1d3461",
-                border: `1px solid ${Object.keys(loading).length > 0 ? "#222" : "#2d4f8a"}`,
-                color: Object.keys(loading).length > 0 ? "#333" : "#60a5fa",
+                background: (postingMessage || Object.keys(loading).length > 0) ? "#1a1a1a" : "#1d3461",
+                border: `1px solid ${(postingMessage || Object.keys(loading).length > 0) ? "#222" : "#2d4f8a"}`,
+                color: (postingMessage || Object.keys(loading).length > 0) ? "#333" : "#60a5fa",
                 width: "34px", height: "34px", borderRadius: "7px",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 flexShrink: 0, fontSize: "16px", cursor: "pointer",
               }}
             >
-              {Object.keys(loading).length > 0 ? "·" : "↑"}
+              {(postingMessage || Object.keys(loading).length > 0) ? "·" : "↑"}
             </button>
           </div>
           <div style={{ marginTop: "6px", fontSize: "10px", color: "#333", fontFamily: "var(--font-mono)", display: "flex", justifyContent: "space-between" }}>
             <span>
               {readOnlyReview
                 ? "Review mode is read-only. Token with write scope required for chat."
-                : "↵ send · shift+↵ newline · click agent chips above to add mention"}
+                : postingMessage
+                  ? "Sending your message…"
+                  : "↵ send · shift+↵ newline · add @writer (or a chip) for an AI reply"}
             </span>
             <span>{messages.length} messages in session</span>
           </div>
