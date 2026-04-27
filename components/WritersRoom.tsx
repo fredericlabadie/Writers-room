@@ -648,22 +648,23 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingArtifact(true);
-    const content = await file.text();
-    const file_type = file.name.split(".").pop() ?? "txt";
-    const res = await fetch("/api/artifacts", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ roomId:room.id, name:file.name, content, file_type }),
-    });
+
+    // API expects multipart/form-data — don't set Content-Type, browser adds boundary
+    const formData = new FormData();
+    formData.append("roomId", room.id);
+    formData.append("file", file);
+
+    const res = await fetch("/api/artifacts", { method: "POST", body: formData });
     if (res.ok) {
-      const artifact = await res.json();
-      setArtifacts(prev => [artifact, ...prev]);
+      const { artifact } = await res.json();
+      if (artifact) setArtifacts(prev => [artifact, ...prev]);
     }
     setUploadingArtifact(false);
     if (fileRef.current) fileRef.current.value = "";
   };
 
   const deleteArtifact = async (id: string) => {
-    await fetch(`/api/artifacts?id=${id}`, { method:"DELETE" });
+    await fetch(`/api/artifacts/${id}`, { method: "DELETE" });
     setArtifacts(prev => prev.filter(a => a.id !== id));
   };
 
