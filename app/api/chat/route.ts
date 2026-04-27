@@ -4,12 +4,28 @@ import { PERSONAS, buildContextString } from "@/lib/personas";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import type { PersonaId } from "@/types";
+import type { PersonaId, RetrievalDebugInfo, RetrievalSettings } from "@/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const CONTEXT_TAIL_COUNT = 16;
 const EARLY_MESSAGE_PREVIEW_CHARS = 140;
+const FILE_GENERATION_INSTRUCTIONS = [
+  "If the user asks for a downloadable file, include one or more file blocks using this exact format:",
+  "```file:filename.ext",
+  "<full file content>",
+  "```",
+  "Use .txt or .md for text docs and .csv for spreadsheets.",
+  "Do not truncate file content in file blocks.",
+].join("\n");
+const MIN_TOP_K = 1;
+const MAX_TOP_K = 12;
+const MIN_THRESHOLD = 0;
+const MAX_THRESHOLD = 1;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function buildPrompt(
   userMessage: string,
@@ -18,7 +34,13 @@ function buildPrompt(
   artifactContext: string
 ) {
   if (!history.length) {
-    return `The user just said: "${userMessage}"\n\nRespond as ${personaName}.`;
+    return [
+      FILE_GENERATION_INSTRUCTIONS,
+      "",
+      `The user just said: "${userMessage}"`,
+      "",
+      `Respond as ${personaName}.`,
+    ].join("\n");
   }
 
   const tail = history.slice(-CONTEXT_TAIL_COUNT);
@@ -55,6 +77,8 @@ function buildPrompt(
     "",
     `The user just said: "${userMessage}"`,
     "",
+    FILE_GENERATION_INSTRUCTIONS,
+    "",
     `Respond as ${personaName}.`,
   ]
     .filter(Boolean)
@@ -67,13 +91,15 @@ export async function POST(req: Request) {
   const writeError = assertWriteAllowed(actor);
   if (writeError) return writeError;
 
-  const { personaId, userMessage, roomId, history, selectedArtifactIds } = await req.json() as {
+  const body = await req.json() as {
     personaId: PersonaId;
     userMessage: string;
     roomId: string;
     history: Array<{ role: string; persona?: string; content: string; user_name?: string }>;
-    selectedArtifactIds?: string[];
+    retrieval?: Partial<RetrievalSettings>;
+    selectedArtifactIds?: string[]; // legacy
   };
+  const { personaId, userMessage, roomId, history } = body;
 
   const persona = PERSONAS[personaId];
   if (!persona) {
@@ -86,13 +112,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not a member of this room" }, { status: 403 });
   }
 
+  const requestedTopK = Number(body.retrieval?.topK ?? 6);
+  const requestedThreshold = Number(body.retrieval?.threshold ?? 0.14);
+  const mode = body.retrieval?.mode === "selected_only" ? "selected_only" : "room_wide";
+  const topK = clamp(Number.isFinite(requestedTopK) ? requestedTopK : 6, MIN_TOP_K, MAX_TOP_K);
+  const threshold = clamp(Number.isFinite(requestedThreshold) ? requestedThreshold : 0.14, MIN_THRESHOLD, MAX_THRESHOLD);
+  const selectedArtifactIds = Array.isArray(body.retrieval?.selectedArtifactIds)
+    ? body.retrieval?.selectedArtifactIds
+    : Array.isArray(body.selectedArtifactIds)
+      ? body.selectedArtifactIds
+      : [];
+
   const retrieved = await retrieveRelevantChunks({
     supabase,
     roomId,
     query: `${userMessage}\n${history.slice(-4).map((msg) => msg.content).join("\n")}`,
+    mode,
     selectedArtifactIds,
-    limit: 6,
-    threshold: 0.14,
+    limit: topK,
+    threshold,
   });
 
   const artifactContext = retrieved
@@ -114,15 +152,24 @@ export async function POST(req: Request) {
 
     // Persist agent message to database
     const citations = retrieved.map((item) => item.citation);
+    const retrievalDebug: RetrievalDebugInfo = {
+      mode,
+      topK,
+      threshold,
+      retrievedCount: retrieved.length,
+      usedArtifactIds: Array.from(new Set(citations.map((citation) => citation.artifactId))),
+      maxScore: citations.length ? Math.max(...citations.map((citation) => citation.score)) : 0,
+    };
     await supabase.from("messages").insert({
       room_id: roomId,
       role: "agent",
       persona: personaId,
       content: text,
       citations,
+      retrieval_debug: retrievalDebug,
     });
 
-    return NextResponse.json({ text, citations });
+    return NextResponse.json({ text, citations, retrieval: retrievalDebug });
   } catch (err) {
     console.error("Anthropic error:", err);
     return NextResponse.json({ error: "Model call failed" }, { status: 500 });

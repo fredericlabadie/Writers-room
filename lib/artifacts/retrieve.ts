@@ -1,5 +1,5 @@
 import { buildEmbedding, cosineSimilarity, parseStoredVector } from "@/lib/artifacts/embed";
-import type { ArtifactCitation } from "@/types";
+import type { ArtifactCitation, RetrievalMode } from "@/types";
 
 interface ChunkRow {
   id: string;
@@ -20,17 +20,20 @@ export async function retrieveRelevantChunks(args: {
   roomId: string;
   query: string;
   selectedArtifactIds?: string[];
+  mode?: RetrievalMode;
   limit?: number;
   threshold?: number;
 }) {
   const queryEmbedding = buildEmbedding(args.query);
+  const mode = args.mode ?? "room_wide";
   let request = args.supabase
     .from("artifact_chunks")
     .select("id, artifact_id, chunk_index, content, embedding, artifacts(name)")
     .eq("room_id", args.roomId)
     .limit(250);
 
-  if (args.selectedArtifactIds?.length) {
+  if (mode === "selected_only") {
+    if (!args.selectedArtifactIds?.length) return [];
     request = request.in("artifact_id", args.selectedArtifactIds);
   }
 

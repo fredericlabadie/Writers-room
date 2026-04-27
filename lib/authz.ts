@@ -32,6 +32,10 @@ export function unauthorizedResponse() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
+export function ownerOnlyResponse() {
+  return NextResponse.json({ error: "Only room owners can perform this action" }, { status: 403 });
+}
+
 export function isWriteAllowed(actor: ActorContext) {
   if (actor.mode === "user") return true;
   return !!actor.review?.scope.write;
@@ -60,4 +64,15 @@ export async function verifyRoomAccess(supabase: any, roomId: string, actor: Act
     .single();
 
   return !!membership;
+}
+
+export async function isRoomOwner(supabase: any, roomId: string, actor: ActorContext) {
+  if (actor.mode !== "user" || !actor.userId) return false;
+  const { data: membership } = await supabase
+    .from("room_members")
+    .select("role")
+    .eq("room_id", roomId)
+    .eq("user_id", actor.userId)
+    .single();
+  return membership?.role === "owner";
 }

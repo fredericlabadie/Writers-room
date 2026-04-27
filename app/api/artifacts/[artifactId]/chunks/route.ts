@@ -1,4 +1,4 @@
-import { assertWriteAllowed, getActorContext, isRoomOwner, ownerOnlyResponse, unauthorizedResponse, verifyRoomAccess } from "@/lib/authz";
+import { getActorContext, isRoomOwner, ownerOnlyResponse, unauthorizedResponse, verifyRoomAccess } from "@/lib/authz";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 import { NextResponse } from "next/server";
 
@@ -6,17 +6,15 @@ interface RouteProps {
   params: { artifactId: string };
 }
 
-// DELETE /api/artifacts/:artifactId
-export async function DELETE(req: Request, { params }: RouteProps) {
+// GET /api/artifacts/:artifactId/chunks
+export async function GET(req: Request, { params }: RouteProps) {
   const actor = await getActorContext(req);
   if (!actor) return unauthorizedResponse();
-  const writeError = assertWriteAllowed(actor);
-  if (writeError) return writeError;
 
   const supabase = createSupabaseServiceClient();
   const { data: artifact } = await supabase
     .from("artifacts")
-    .select("id, room_id, storage_path")
+    .select("id, room_id, name")
     .eq("id", params.artifactId)
     .single();
 
@@ -27,8 +25,16 @@ export async function DELETE(req: Request, { params }: RouteProps) {
   const owner = await isRoomOwner(supabase, artifact.room_id, actor);
   if (!owner) return ownerOnlyResponse();
 
-  await supabase.storage.from("artifacts").remove([artifact.storage_path]);
-  await supabase.from("artifacts").delete().eq("id", artifact.id);
+  const { data: chunks, error } = await supabase
+    .from("artifact_chunks")
+    .select("id, chunk_index, content")
+    .eq("artifact_id", artifact.id)
+    .order("chunk_index", { ascending: true })
+    .limit(120);
 
-  return NextResponse.json({ ok: true });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({
+    artifact: { id: artifact.id, name: artifact.name },
+    chunks: chunks ?? [],
+  });
 }

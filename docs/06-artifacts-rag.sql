@@ -56,6 +56,9 @@ create index if not exists artifact_chunks_embedding_ivfflat_idx
 alter table messages
   add column if not exists citations jsonb not null default '[]'::jsonb;
 
+alter table messages
+  add column if not exists retrieval_debug jsonb;
+
 -- Enable RLS (service-role key bypasses this in API routes)
 alter table artifacts enable row level security;
 alter table message_artifacts enable row level security;

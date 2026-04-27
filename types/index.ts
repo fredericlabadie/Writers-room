@@ -22,6 +22,7 @@ export interface Message {
   persona?: PersonaId;
   content: string;
   citations?: ArtifactCitation[];
+  retrieval_debug?: RetrievalDebugInfo;
   artifact_ids?: string[];
   user_id?: string;
   user_name?: string;
@@ -74,4 +75,22 @@ export interface ArtifactCitation {
   chunkId: string;
   chunkIndex: number;
   score: number;
+}
+
+export type RetrievalMode = "room_wide" | "selected_only";
+
+export interface RetrievalSettings {
+  mode: RetrievalMode;
+  topK: number;
+  threshold: number;
+  selectedArtifactIds?: string[];
+}
+
+export interface RetrievalDebugInfo {
+  mode: RetrievalMode;
+  topK: number;
+  threshold: number;
+  retrievedCount: number;
+  usedArtifactIds: string[];
+  maxScore: number;
 }

@@ -3,7 +3,41 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
-import type { Artifact, Message, Room, PersonaId } from "@/types";
+import type { Artifact, Message, RetrievalMode, Room, PersonaId } from "@/types";
+
+interface GeneratedFile {
+  filename: string;
+  ext: string;
+  content: string;
+}
+
+const GENERATED_FILE_BLOCK_RE = /```file:([^\n`]+)\n([\s\S]*?)```/g;
+
+function getFileExt(filename: string) {
+  const parts = filename.split(".");
+  return (parts.length > 1 ? parts[parts.length - 1] : "txt").toLowerCase();
+}
+
+function parseGeneratedFiles(content: string): GeneratedFile[] {
+  const files: GeneratedFile[] = [];
+  let match;
+  while ((match = GENERATED_FILE_BLOCK_RE.exec(content)) !== null) {
+    const rawName = match[1].trim();
+    const safeName = rawName.replace(/[^\w.\-]/g, "_");
+    const text = match[2].replace(/\n$/, "");
+    files.push({
+      filename: safeName || `generated-${Date.now()}.txt`,
+      ext: getFileExt(safeName || "txt"),
+      content: text,
+    });
+  }
+  GENERATED_FILE_BLOCK_RE.lastIndex = 0;
+  return files;
+}
+
+function stripGeneratedFileBlocks(content: string) {
+  return content.replace(GENERATED_FILE_BLOCK_RE, "").trim();
+}
 
 interface Props {
   room: Room;
@@ -17,8 +51,15 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   const [messages, setMessages] = useState<Message[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("room_wide");
+  const [retrievalTopK, setRetrievalTopK] = useState(6);
+  const [retrievalThreshold, setRetrievalThreshold] = useState(0.14);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [uploadingArtifact, setUploadingArtifact] = useState(false);
+  const [loadingChunksArtifactId, setLoadingChunksArtifactId] = useState<string | null>(null);
+  const [openChunksArtifactId, setOpenChunksArtifactId] = useState<string | null>(null);
+  const [artifactChunks, setArtifactChunks] = useState<Record<string, Array<{ id: string; chunk_index: number; content: string }>>>({});
+  const [reindexingArtifactId, setReindexingArtifactId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -29,6 +70,7 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const artifactInputRef = useRef<HTMLInputElement>(null);
   const readOnlyReview = !!reviewScope?.read && !reviewScope?.write;
+  const ownerCanMaintainArtifacts = userRole === "owner" && !readOnlyReview;
 
   // Load message history
   useEffect(() => {
@@ -61,6 +103,37 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   function formatTime(iso: string) {
     return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
+
+  const downloadFile = async (file: GeneratedFile, format: "native" | "xlsx" = "native") => {
+    try {
+      let blob: Blob;
+      let filename = file.filename;
+
+      if (format === "xlsx") {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.read(file.content, { type: "string" });
+        const output = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+        blob = new Blob([output], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        filename = filename.replace(/\.[^.]+$/, "") + ".xlsx";
+      } else {
+        const type = file.ext === "csv" ? "text/csv;charset=utf-8" : "text/plain;charset=utf-8";
+        blob = new Blob([file.content], { type });
+      }
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch {
+      setArtifactError("Failed to generate downloadable file");
+    }
+  };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -115,11 +188,63 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
   };
 
   const deleteArtifact = async (artifactId: string) => {
-    if (readOnlyReview) return;
+    if (!ownerCanMaintainArtifacts) return;
     const res = await fetch(`/api/artifacts/${artifactId}`, { method: "DELETE" });
     if (!res.ok) return;
     setArtifacts((prev) => prev.filter((a) => a.id !== artifactId));
     setSelectedArtifactIds((prev) => prev.filter((id) => id !== artifactId));
+    setArtifactChunks((prev) => {
+      const next = { ...prev };
+      delete next[artifactId];
+      return next;
+    });
+    if (openChunksArtifactId === artifactId) setOpenChunksArtifactId(null);
+  };
+
+  const loadArtifactChunks = async (artifactId: string) => {
+    if (!ownerCanMaintainArtifacts) return;
+    if (openChunksArtifactId === artifactId) {
+      setOpenChunksArtifactId(null);
+      return;
+    }
+
+    if (artifactChunks[artifactId]) {
+      setOpenChunksArtifactId(artifactId);
+      return;
+    }
+
+    setLoadingChunksArtifactId(artifactId);
+    const res = await fetch(`/api/artifacts/${artifactId}/chunks`);
+    const payload = await res.json();
+    setLoadingChunksArtifactId(null);
+    if (!res.ok) {
+      setArtifactError(payload.error ?? "Failed to load chunks");
+      return;
+    }
+    setArtifactChunks((prev) => ({ ...prev, [artifactId]: payload.chunks ?? [] }));
+    setOpenChunksArtifactId(artifactId);
+  };
+
+  const reindexArtifact = async (artifactId: string) => {
+    if (!ownerCanMaintainArtifacts) return;
+    setReindexingArtifactId(artifactId);
+    setArtifactError("");
+    const res = await fetch(`/api/artifacts/${artifactId}/reindex`, { method: "POST" });
+    const payload = await res.json();
+    setReindexingArtifactId(null);
+    if (!res.ok) {
+      setArtifactError(payload.error ?? "Reindex failed");
+      return;
+    }
+    if (payload.artifact) {
+      setArtifacts((prev) => prev.map((a) => (a.id === artifactId ? payload.artifact : a)));
+    }
+    setArtifactChunks((prev) => {
+      const next = { ...prev };
+      delete next[artifactId];
+      return next;
+    });
+    if (openChunksArtifactId === artifactId) setOpenChunksArtifactId(null);
   };
 
   const send = useCallback(async () => {
@@ -177,16 +302,22 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
             userMessage: text,
             roomId: room.id,
             history: historySnapshot,
-            selectedArtifactIds,
+            retrieval: {
+              mode: retrievalMode,
+              topK: retrievalTopK,
+              threshold: retrievalThreshold,
+              selectedArtifactIds,
+            },
           }),
         });
-        const { text: agentText, citations } = await agentRes.json();
+        const { text: agentText, citations, retrieval } = await agentRes.json();
         const agentMsg: Message = {
           id: `${Date.now()}-${personaId}`,
           role: "agent",
           persona: personaId as PersonaId,
           content: agentText,
           citations: Array.isArray(citations) ? citations : [],
+          retrieval_debug: retrieval ?? undefined,
           created_at: now(),
         };
         setMessages(prev => [...prev, agentMsg]);
@@ -196,7 +327,18 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       }
       setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
     }
-  }, [input, loading, messages, room.id, currentUser, selectedArtifactIds, readOnlyReview]);
+  }, [
+    input,
+    loading,
+    messages,
+    room.id,
+    currentUser,
+    selectedArtifactIds,
+    retrievalMode,
+    retrievalTopK,
+    retrievalThreshold,
+    readOnlyReview,
+  ]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -308,40 +450,103 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
               </button>
             </div>
           </div>
+          {!ownerCanMaintainArtifacts && (
+            <div style={{ color: "#777", fontSize: "11px", fontFamily: "var(--font-mono)" }}>
+              Chunk preview, re-index, and delete are owner-only actions.
+            </div>
+          )}
           {artifactError && <div style={{ color: "#f87171", fontSize: "12px" }}>{artifactError}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "220px", overflow: "auto" }}>
             {artifacts.map((artifact) => (
               <div key={artifact.id} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
+                display: "flex", flexDirection: "column", gap: "6px",
                 background: "#151515", border: "1px solid #252525", borderRadius: "8px", padding: "8px 10px",
               }}>
-                <button
-                  onClick={() => toggleArtifactSelection(artifact.id)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: selectedArtifactIds.includes(artifact.id) ? "#60a5fa" : "#bbb",
-                    fontSize: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                >
-                  <span>{selectedArtifactIds.includes(artifact.id) ? "☑" : "☐"}</span>
-                  <span>{artifact.name}</span>
-                  <span style={{ color: artifact.parse_status === "ready" ? "#34d399" : "#777", fontSize: "10px", fontFamily: "var(--font-mono)" }}>
-                    {artifact.parse_status.toUpperCase()}
-                  </span>
-                </button>
-                {!readOnlyReview && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
                   <button
-                    onClick={() => deleteArtifact(artifact.id)}
-                    style={{ background: "none", border: "1px solid #3a1d1d", color: "#f87171", borderRadius: "5px", fontSize: "10px", padding: "2px 6px" }}
+                    onClick={() => toggleArtifactSelection(artifact.id)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: selectedArtifactIds.includes(artifact.id) ? "#60a5fa" : "#bbb",
+                      fontSize: "12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
                   >
-                    DELETE
+                    <span>{selectedArtifactIds.includes(artifact.id) ? "☑" : "☐"}</span>
+                    <span>{artifact.name}</span>
+                    <span style={{ color: artifact.parse_status === "ready" ? "#34d399" : "#777", fontSize: "10px", fontFamily: "var(--font-mono)" }}>
+                      {artifact.parse_status.toUpperCase()}
+                    </span>
                   </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <button
+                      onClick={() => loadArtifactChunks(artifact.id)}
+                      disabled={!ownerCanMaintainArtifacts || loadingChunksArtifactId === artifact.id}
+                      title={ownerCanMaintainArtifacts ? "Preview indexed chunks" : "Owner only"}
+                      style={{
+                        background: "none",
+                        border: "1px solid #2a2a2a",
+                        color: "#aaa",
+                        borderRadius: "5px",
+                        fontSize: "10px",
+                        padding: "2px 6px",
+                        opacity: !ownerCanMaintainArtifacts ? 0.45 : 1,
+                      }}
+                    >
+                      {loadingChunksArtifactId === artifact.id ? "LOADING..." : openChunksArtifactId === artifact.id ? "HIDE CHUNKS" : "CHUNKS"}
+                    </button>
+                    <button
+                      onClick={() => reindexArtifact(artifact.id)}
+                      disabled={!ownerCanMaintainArtifacts || reindexingArtifactId === artifact.id}
+                      title={ownerCanMaintainArtifacts ? "Re-run parsing and indexing" : "Owner only"}
+                      style={{
+                        background: "none",
+                        border: "1px solid #2d4f8a",
+                        color: "#60a5fa",
+                        borderRadius: "5px",
+                        fontSize: "10px",
+                        padding: "2px 6px",
+                        opacity: !ownerCanMaintainArtifacts ? 0.45 : 1,
+                      }}
+                    >
+                      {reindexingArtifactId === artifact.id ? "REINDEXING..." : "REINDEX"}
+                    </button>
+                    <button
+                      onClick={() => deleteArtifact(artifact.id)}
+                      disabled={!ownerCanMaintainArtifacts}
+                      title={ownerCanMaintainArtifacts ? "Delete artifact and chunks" : "Owner only"}
+                      style={{
+                        background: "none",
+                        border: "1px solid #3a1d1d",
+                        color: "#f87171",
+                        borderRadius: "5px",
+                        fontSize: "10px",
+                        padding: "2px 6px",
+                        opacity: !ownerCanMaintainArtifacts ? 0.45 : 1,
+                      }}
+                    >
+                      DELETE
+                    </button>
+                  </div>
+                </div>
+                {openChunksArtifactId === artifact.id && (
+                  <div style={{ borderTop: "1px solid #222", paddingTop: "6px", display: "flex", flexDirection: "column", gap: "5px", maxHeight: "170px", overflow: "auto" }}>
+                    {(artifactChunks[artifact.id] ?? []).map((chunk) => (
+                      <div key={chunk.id} style={{ fontSize: "11px", color: "#999", lineHeight: 1.4 }}>
+                        <span style={{ color: "#60a5fa", fontFamily: "var(--font-mono)", marginRight: "6px" }}>#{chunk.chunk_index}</span>
+                        {chunk.content.slice(0, 280)}
+                        {chunk.content.length > 280 ? "..." : ""}
+                      </div>
+                    ))}
+                    {!(artifactChunks[artifact.id] ?? []).length && (
+                      <div style={{ fontSize: "11px", color: "#666" }}>No chunks available.</div>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
@@ -394,6 +599,9 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
         )}
 
         {messages.map(msg => {
+          const generatedFiles = parseGeneratedFiles(msg.content);
+          const displayContent = stripGeneratedFileBlocks(msg.content);
+
           if (msg.role === "user") {
             const isMe = msg.user_id === currentUser.id;
             return (
@@ -411,9 +619,36 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                   padding: "10px 14px",
                 }}>
                   {!isMe && <div style={{ fontSize: "10px", color: "#555", marginBottom: "3px", fontFamily: "var(--font-mono)" }}>{msg.user_name}</div>}
-                  <div style={{ fontSize: "14px", color: "#e5e5e5", lineHeight: "1.55", whiteSpace: "pre-wrap" }}>
-                    {renderContent(msg.content)}
-                  </div>
+                  {displayContent && (
+                    <div style={{ fontSize: "14px", color: "#e5e5e5", lineHeight: "1.55", whiteSpace: "pre-wrap" }}>
+                      {renderContent(displayContent)}
+                    </div>
+                  )}
+                  {!!generatedFiles.length && (
+                    <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {generatedFiles.map((file) => (
+                        <div key={`${msg.id}-${file.filename}`} style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "var(--font-mono)" }}>
+                            FILE: {file.filename}
+                          </span>
+                          <button
+                            onClick={() => void downloadFile(file)}
+                            style={{ fontSize: "10px", border: "1px solid #2a2a2a", background: "#111", color: "#ddd", borderRadius: "5px", padding: "2px 6px" }}
+                          >
+                            DOWNLOAD
+                          </button>
+                          {file.ext === "csv" && (
+                            <button
+                              onClick={() => void downloadFile(file, "xlsx")}
+                              style={{ fontSize: "10px", border: "1px solid #2d4f8a", background: "#111", color: "#60a5fa", borderRadius: "5px", padding: "2px 6px" }}
+                            >
+                              XLSX
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {!!msg.artifact_ids?.length && (
                     <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
                       {msg.artifact_ids.map((artifactId) => (
@@ -462,14 +697,41 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                       {formatTime(msg.created_at)}
                     </span>
                   </div>
-                  <div style={{
-                    background: "#111", border: "1px solid #222",
-                    borderLeft: `3px solid ${persona.color}50`,
-                    borderRadius: "0 8px 8px 0", padding: "10px 14px",
-                    fontSize: "14px", color: "#d4d4d4", lineHeight: "1.65", whiteSpace: "pre-wrap",
-                  }}>
-                    {renderContent(msg.content)}
-                  </div>
+                  {displayContent && (
+                    <div style={{
+                      background: "#111", border: "1px solid #222",
+                      borderLeft: `3px solid ${persona.color}50`,
+                      borderRadius: "0 8px 8px 0", padding: "10px 14px",
+                      fontSize: "14px", color: "#d4d4d4", lineHeight: "1.65", whiteSpace: "pre-wrap",
+                    }}>
+                      {renderContent(displayContent)}
+                    </div>
+                  )}
+                  {!!generatedFiles.length && (
+                    <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {generatedFiles.map((file) => (
+                        <div key={`${msg.id}-${file.filename}`} style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "10px", color: "#9ca3af", fontFamily: "var(--font-mono)" }}>
+                            FILE: {file.filename}
+                          </span>
+                          <button
+                            onClick={() => void downloadFile(file)}
+                            style={{ fontSize: "10px", border: "1px solid #2a2a2a", background: "#111", color: "#ddd", borderRadius: "5px", padding: "2px 6px" }}
+                          >
+                            DOWNLOAD
+                          </button>
+                          {file.ext === "csv" && (
+                            <button
+                              onClick={() => void downloadFile(file, "xlsx")}
+                              style={{ fontSize: "10px", border: "1px solid #2d4f8a", background: "#111", color: "#60a5fa", borderRadius: "5px", padding: "2px 6px" }}
+                            >
+                              XLSX
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {!!msg.citations?.length && (
                     <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "5px" }}>
                       {msg.citations.map((citation) => (
@@ -488,6 +750,11 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
                           {citation.artifactName}#{citation.chunkIndex}
                         </span>
                       ))}
+                    </div>
+                  )}
+                  {msg.retrieval_debug && (
+                    <div style={{ marginTop: "6px", fontSize: "10px", color: "#777", fontFamily: "var(--font-mono)" }}>
+                      retrieval {msg.retrieval_debug.mode} · chunks {msg.retrieval_debug.retrievedCount}/{msg.retrieval_debug.topK} · threshold {msg.retrieval_debug.threshold.toFixed(2)} · maxScore {msg.retrieval_debug.maxScore.toFixed(2)}
                     </div>
                   )}
                 </div>
@@ -538,6 +805,59 @@ export default function WritersRoom({ room, currentUser, userRole, reviewScope =
       {/* Input */}
       <div style={{ padding: "16px 24px", borderTop: "1px solid #1e1e1e", background: "#0d0d0d" }}>
         <div style={{ position: "relative" }}>
+          <div style={{
+            marginBottom: "8px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            flexWrap: "wrap",
+            fontSize: "11px",
+            color: "#777",
+            fontFamily: "var(--font-mono)",
+          }}>
+            <span>Retrieval</span>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span>Mode</span>
+              <select
+                value={retrievalMode}
+                onChange={(e) => setRetrievalMode(e.target.value as RetrievalMode)}
+                disabled={readOnlyReview}
+                style={{ background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
+              >
+                <option value="room_wide">room-wide</option>
+                <option value="selected_only">selected-only</option>
+              </select>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span>TopK</span>
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={retrievalTopK}
+                disabled={readOnlyReview}
+                onChange={(e) => setRetrievalTopK(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                style={{ width: "54px", background: "#111", color: "#bbb", border: "1px solid #2a2a2a", borderRadius: "5px", padding: "2px 6px", fontSize: "11px" }}
+              />
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span>Threshold</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                disabled={readOnlyReview}
+                value={retrievalThreshold}
+                onChange={(e) => setRetrievalThreshold(Number(e.target.value))}
+              />
+              <span>{retrievalThreshold.toFixed(2)}</span>
+            </label>
+            {retrievalMode === "selected_only" && selectedArtifactIds.length === 0 && (
+              <span style={{ color: "#fbbf24" }}>Select at least one artifact</span>
+            )}
+          </div>
+
           {mentionQuery !== null && mentionOptions.length > 0 && (
             <div style={{
               position: "absolute", bottom: "calc(100% + 8px)", left: 0,

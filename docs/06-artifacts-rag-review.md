@@ -48,9 +48,21 @@ Inside a room:
 1. Click `FILES`
 2. Upload a document or image
 3. Wait until status is `READY`
-4. Check the artifact to include it in retrieval
+4. Check artifacts when using `selected-only` retrieval mode
 
 When you message `@writer`/`@editor`/etc, relevant chunks are injected into prompt context and cited in responses.
+
+### Retrieval controls in chat
+
+Near the message composer you can tune:
+
+- **Mode**
+  - `room-wide` (default): search all indexed artifacts in the room.
+  - `selected-only`: search only checked artifacts in the `FILES` panel.
+- **TopK**: maximum number of chunks included.
+- **Threshold**: minimum similarity score required.
+
+Each agent reply now includes a small retrieval debug line (`mode`, chunks used, threshold, max score).
 
 ---
 
@@ -77,7 +89,27 @@ Share the review URL with Claude/other AIs.
 
 - Upload `txt/md/pdf/docx` and image files successfully
 - Confirm `artifacts.parse_status` becomes `ready` for docs/images
-- Send a prompt with selected artifacts; verify agent citations appear
-- Confirm non-members cannot list/upload/delete artifacts
+- Send prompts with:
+  - `room-wide` mode and no selected artifacts,
+  - `selected-only` mode with checked artifacts,
+  and verify citations + retrieval debug metadata.
+- Confirm non-members cannot list/upload artifacts.
+- Confirm non-owners cannot preview chunks, re-index, or delete artifacts.
+- Confirm owners can preview chunks and re-index failed artifacts.
 - Confirm review token grants read access and expires correctly
 - Confirm write attempts fail when token scope is read-only
+
+---
+
+## 6.6 Troubleshooting retrieval quality
+
+- **No chunks retrieved**
+  - Lower threshold (for example `0.14 -> 0.08`).
+  - Increase `TopK`.
+  - Confirm artifact status is `READY`.
+- **Wrong context chosen**
+  - Switch to `selected-only` and choose exact source files.
+  - Use chunk preview (`CHUNKS`) to verify indexed text.
+- **Artifact failed to parse**
+  - Open `FILES` and click `REINDEX` (owner only).
+  - Check `parse_error` in the artifact row/API response.
