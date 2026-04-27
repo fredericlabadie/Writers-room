@@ -1,5 +1,10 @@
 export type PersonaId = "researcher" | "writer" | "editor" | "critic" | "director";
 
+export interface PersonaGenerationSettings {
+  temperature: number;
+  maxTokens: number;
+}
+
 export interface Persona {
   id: PersonaId;
   name: string;
@@ -8,6 +13,7 @@ export interface Persona {
   accent: string;
   icon: string;
   system: string;
+  generation: PersonaGenerationSettings;
 }
 
 export interface Message {

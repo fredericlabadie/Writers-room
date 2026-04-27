@@ -21,6 +21,8 @@ A collaborative AI writing space with multiple specialized agents. Mention agent
 - **Living chat log** — every agent call includes the full room history as context
 - **Token-efficient** — agents only fire when `@`-mentioned
 - **Persistent history** — conversations saved to Supabase Postgres
+- **Role-tuned generation** — each agent uses different temperature and token budgets
+- **Auto-director synthesis** — when 2+ agents are mentioned, `@director` closes with a decision and next move
 
 ## Stack
 

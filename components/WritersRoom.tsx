@@ -92,8 +92,14 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
     const mentions = parseMentions(text);
     if (!mentions.length) return;
 
+    // Auto-synthesize when multiple agents are asked to weigh in.
+    const orderedMentions = [...mentions];
+    if (orderedMentions.length >= 2 && !orderedMentions.includes("director")) {
+      orderedMentions.push("director");
+    }
+
     const newLoading: Record<string, boolean> = {};
-    mentions.forEach(id => { newLoading[id] = true; });
+    orderedMentions.forEach(id => { newLoading[id] = true; });
     setLoading(newLoading);
 
     // Build history snapshot for context
@@ -105,7 +111,7 @@ export default function WritersRoom({ room, currentUser, userRole }: Props) {
     }));
 
     // Call agents sequentially so each sees previous responses
-    for (const personaId of mentions) {
+    for (const personaId of orderedMentions) {
       try {
         const agentRes = await fetch("/api/chat", {
           method: "POST",
