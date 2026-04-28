@@ -16,6 +16,8 @@ export interface Persona {
   icon: string;
   system: string;
   generation: PersonaGenerationSettings;
+  role: string;
+  tagline: string;
 }
 
 export interface Message {
