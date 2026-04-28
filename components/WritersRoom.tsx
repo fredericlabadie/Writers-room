@@ -232,7 +232,7 @@ function AgentMessage({ msg, onDelete, reactions, onReact }: {
 }
 
 // Director — full-bleed synthesis treatment
-function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave }: {
+function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact }: {
   msg: Message;
   onDelete: (id: string) => void;
   onSave: (text: string) => void;
