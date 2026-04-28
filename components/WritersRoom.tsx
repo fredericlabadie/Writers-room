@@ -1079,7 +1079,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
         : [...baseHistory];
 
       try {
-        const agentRes = await fetch("/api/chat", {
+        const agentRes: Response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1173,7 +1173,7 @@ ${directorSynthesis}`,
       previousPersonaId: AgentId | null,
     ): Promise<string | null> => {
       try {
-        const agentRes = await fetch("/api/chat", {
+        const agentRes: Response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
