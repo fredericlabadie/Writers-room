@@ -1061,7 +1061,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     // Base history for the chain — full room log
     const directionsBlock = directions.length > 0
       ? "PINNED DIRECTIONS:" + directions.map((d, i) => `${i + 1}. ${d}`).join("") : null;
-    const baseHistory = [...messages].map(m => ({
+    type HistoryMsg = { role: string; persona: string | undefined; content: string; user_name: string | undefined };
+    const baseHistory: HistoryMsg[] = [...messages].map(m => ({
       role: m.role, persona: m.persona, content: m.content, user_name: m.user_name,
     }));
     if (directionsBlock) {
@@ -1070,11 +1071,11 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
 
     // Each agent fires as a chain — receives director synthesis + previous agent response (Option B)
     let previousResponse: string | null = directorSynthesis;
-    let previousPersonaId: AgentId | null = "director" as AgentId;
+    let previousPersonaId: string | null = "director";
 
     for (const personaId of agentIds) {
-      const chainHistory = previousResponse && previousPersonaId
-        ? [...baseHistory, { role: "agent" as const, persona: previousPersonaId, content: previousResponse, user_name: undefined }]
+      const chainHistory: HistoryMsg[] = previousResponse && previousPersonaId
+        ? [...baseHistory, { role: "agent", persona: previousPersonaId, content: previousResponse, user_name: undefined }]
         : [...baseHistory];
 
       try {
