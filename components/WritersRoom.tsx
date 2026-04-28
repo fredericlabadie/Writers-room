@@ -229,7 +229,7 @@ function AgentMessage({ msg, onDelete, reactions, onReact }: {
 }
 
 // Director — full-bleed synthesis treatment
-function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact }: {
+function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact, onCallChain, agents }: {
   msg: Message;
   onDelete: (id: string) => void;
   onSave: (text: string) => void;
@@ -237,16 +237,46 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
   canSave: boolean;
   reactions: string[];
   onReact: (msgId: string, emoji: string) => void;
+  onCallChain: (agentIds: string[], directorSynthesis: string) => void;
+  agents: ReturnType<typeof getAgentsForRoom>;
 }) {
-  const [hov, setHov]   = useState(false);
-  const [saved, setSaved] = useState(false);
-  const a = getAgent("director");
+  const [hov, setHov]     = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [calling, setCalling] = useState(false);
+  const a = getAgent("director", agents);
+
+  // Parse @mentions from the last "Next move:" line only
+  const lines = msg.content.trimEnd().split("\n");
+  const lastLine = lines[lines.length - 1] ?? "";
+  const isNextMove = /next move:/i.test(lastLine);
+  const nextMoveHandles: string[] = [];
+  if (isNextMove) {
+    const handles = agents.map(ag => ag.handle);
+    const re = new RegExp(`@(${handles.join("|")})`, "gi");
+    let m;
+    while ((m = re.exec(lastLine)) !== null) {
+      const h = m[1].toLowerCase();
+      if (!nextMoveHandles.includes(h)) nextMoveHandles.push(h);
+    }
+  }
+
+  // Body without the last line (we render it separately)
+  const bodyContent = isNextMove && nextMoveHandles.length > 0
+    ? lines.slice(0, -1).join("\n")
+    : msg.content;
 
   const handleSave = () => {
     if (!canSave) return;
     onSave(msg.content);
     setSaved(true);
     setTimeout(() => setSaved(false), 1600);
+  };
+
+  const handleCallChain = async () => {
+    if (calling || !nextMoveHandles.length) return;
+    setCalling(true);
+    await onCallChain(nextMoveHandles, msg.content);
+    setCalling(false);
   };
 
   return (
@@ -268,10 +298,58 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
           {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
         </span>}
       </div>
+
+      {/* Main body — last line separated out */}
       <div style={{ fontFamily:T.sans, fontSize:16, lineHeight:1.95, color:"#e8e8e8", maxWidth:640, whiteSpace:"pre-wrap" }}>
-        {msg.content}
+        {bodyContent}
       </div>
-      <div style={{ display:"flex", gap:10, marginTop:18 }}>
+
+      {/* Next move line — rendered as interactive chain button */}
+      {isNextMove && nextMoveHandles.length > 0 && (
+        <div style={{
+          marginTop:16, paddingTop:14,
+          borderTop:`1px solid ${a.color}22`,
+          display:"flex", alignItems:"center", gap:10,
+        }}>
+          <span style={{ fontFamily:T.mono, fontSize:8, color:a.color+"88", letterSpacing:"0.1em", flexShrink:0 }}>
+            NEXT MOVE
+          </span>
+          <button
+            onClick={handleCallChain}
+            disabled={calling}
+            title={`Fire ${nextMoveHandles.map(h => "@" + h).join(" → ")} as a chain`}
+            style={{
+              display:"flex", alignItems:"center", gap:6,
+              padding:"5px 12px",
+              background: calling ? a.color+"22" : a.color+"14",
+              border:`1px solid ${calling ? a.color+"88" : a.color+"44"}`,
+              borderRadius:6, cursor: calling ? "not-allowed" : "pointer",
+              transition:"all 0.2s",
+            }}
+          >
+            {calling ? (
+              <span style={{ fontFamily:T.mono, fontSize:10, color:a.color }}>calling…</span>
+            ) : (
+              nextMoveHandles.map((handle, i) => {
+                const ag = agents.find(x => x.handle === handle);
+                return (
+                  <span key={handle} style={{ display:"flex", alignItems:"center", gap:4 }}>
+                    {i > 0 && <span style={{ fontFamily:T.mono, fontSize:9, color:a.color+"66" }}>→</span>}
+                    <span style={{ fontSize:12, color: ag?.color ?? T.sub }}>{ag?.icon ?? "◉"}</span>
+                    <span style={{ fontFamily:T.mono, fontSize:9, color: ag?.color ?? T.sub }}>@{handle}</span>
+                  </span>
+                );
+              })
+            )}
+            {!calling && (
+              <span style={{ fontFamily:T.mono, fontSize:8, color:a.color+"55", marginLeft:2 }}>↑</span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Action row */}
+      <div style={{ display:"flex", gap:10, marginTop:14 }}>
         <button
           onClick={handleSave}
           disabled={!canSave}
@@ -302,7 +380,7 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
 }
 
 // Message router
-function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact }: {
+function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact, onCallChain, agents }: {
   msg: Message;
   onDelete: (id: string) => void;
   onSave: (text: string) => void;
@@ -310,9 +388,11 @@ function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, o
   canSave: boolean;
   reactions: string[];
   onReact: (msgId: string, emoji: string) => void;
+  onCallChain: (agentIds: string[], directorSynthesis: string) => void;
+  agents: ReturnType<typeof getAgentsForRoom>;
 }) {
   if (msg.role === "user") return <UserMessage msg={msg} onDelete={onDelete} />;
-  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} reactions={reactions} onReact={onReact} />;
+  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} reactions={reactions} onReact={onReact} onCallChain={onCallChain} agents={agents} />;
   if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} reactions={reactions} onReact={onReact} />;
   return null;
 }
@@ -969,6 +1049,74 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     ].filter(Boolean).join(' ') || null;
   };
 
+  // Fire a director-suggested chain — called when user clicks a Next move button
+  const callDirectorChain = async (agentIds: string[], directorSynthesis: string) => {
+    if (Object.keys(loading).length > 0) return;
+
+    const newLoading: Record<string, boolean> = {};
+    agentIds.forEach(id => { newLoading[id] = true; });
+    setLoading(newLoading);
+
+    // Base history for the chain — full room log
+    const directionsBlock = directions.length > 0
+      ? "PINNED DIRECTIONS:" + directions.map((d, i) => `${i + 1}. ${d}`).join("") : null;
+    const baseHistory = [...messages].map(m => ({
+      role: m.role, persona: m.persona, content: m.content, user_name: m.user_name,
+    }));
+    if (directionsBlock) {
+      baseHistory.unshift({ role: "system", persona: undefined, content: directionsBlock, user_name: undefined });
+    }
+
+    // Each agent fires as a chain — receives director synthesis + previous agent response (Option B)
+    let previousResponse: string | null = directorSynthesis;
+    let previousPersonaId: AgentId | null = "director" as AgentId;
+
+    for (const personaId of agentIds) {
+      const chainHistory = previousResponse && previousPersonaId
+        ? [...baseHistory, { role: "agent" as const, persona: previousPersonaId, content: previousResponse, user_name: undefined }]
+        : [...baseHistory];
+
+      try {
+        const agentRes = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            personaId,
+            // Specific prompt — agent knows it was called by the director
+            userMessage: `The director has suggested you respond. Here is their synthesis and direction:
+
+${directorSynthesis}`,
+            roomId: room.id,
+            history: chainHistory,
+            chainContext: previousResponse,
+            previousPersona: previousPersonaId,
+            agentContext: buildAgentContext(personaId),
+          }),
+        });
+
+        if (agentRes.status === 429) {
+          const err = await agentRes.json();
+          setRateLimitError(err.message ?? "Rate limit reached.");
+          setLoading({});
+          return;
+        }
+
+        const { text: agentText, id: agentId } = await agentRes.json();
+        if (agentId) seenIds.current.add(agentId);
+
+        const agentMsg: Message = {
+          id: agentId ?? `${Date.now()}-${personaId}`,
+          role: "agent", persona: personaId as PersonaId,
+          content: agentText, created_at: now(),
+        };
+        setMessages(prev => [...prev, agentMsg]);
+        previousResponse = agentText;
+        previousPersonaId = personaId as AgentId;
+      } catch { /* skip */ }
+      setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
+    }
+  };
+
   // Insert @mention into input
   const insertMention = (id: AgentId) => {
     setInput(prev => prev + `@${id} `);
@@ -1343,7 +1491,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
               )}
               {messages.map(msg => (
                 <div key={msg.id} className="msg-in">
-                  <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} reactions={messageReactions[msg.id] ?? []} onReact={toggleReaction} />
+                  <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} reactions={messageReactions[msg.id] ?? []} onReact={toggleReaction} onCallChain={callDirectorChain} agents={AGENTS} />
                 </div>
               ))}
 
