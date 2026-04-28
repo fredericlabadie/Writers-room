@@ -34,7 +34,7 @@ function RoomCard({
   confirmDeleteId,
   setConfirmDeleteId,
   deleting,
-  highlight,
+  highlightFn,
 }: {
   entry: RoomEntry;
   onOpen: (id: string) => void;
@@ -42,7 +42,7 @@ function RoomCard({
   confirmDeleteId: string | null;
   setConfirmDeleteId: (id: string | null) => void;
   deleting: string | null;
-  highlight?: (text: string) => React.ReactNode;
+  highlightFn?: (text: string) => React.ReactNode;
 }) {
   const room = entry.rooms;
   const isOwner = entry.role === "owner";
@@ -81,30 +81,6 @@ function RoomCard({
     } else {
       setSwipeX(0); // snap closed
     }
-  };
-
-  const q = searchQuery.trim().toLowerCase();
-  const filteredRooms = q
-    ? rooms.filter(e =>
-        e.rooms.name.toLowerCase().includes(q) ||
-        (e.rooms.description ?? "").toLowerCase().includes(q)
-      )
-    : rooms;
-
-  // Highlight matching text in a string
-  const highlight = (text: string): React.ReactNode => {
-    if (!q) return text;
-    const idx = text.toLowerCase().indexOf(q);
-    if (idx === -1) return text;
-    return (
-      <>
-        {text.slice(0, idx)}
-        <mark style={{ background: "#4da8ff33", color: "#4da8ff", borderRadius: 2, padding: "0 1px" }}>
-          {text.slice(idx, idx + q.length)}
-        </mark>
-        {text.slice(idx + q.length)}
-      </>
-    );
   };
 
   const bg = "#0a0a0a", surf = "#111111", bdr = "#1e1e1e", bdr2 = "#2a2a2a";
@@ -153,7 +129,7 @@ function RoomCard({
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 500, color: text, marginBottom: 3, display: "flex", alignItems: "center", gap: 8 }}>
-              {highlight ? highlight(room.name) : room.name}
+              {highlightFn ? highlightFn(room.name) : room.name}
               {room.is_private && (
                 <span style={{ fontSize: 9, color: sub, fontFamily: mono, border: `1px solid ${bdr2}`, padding: "1px 5px", borderRadius: 3 }}>
                   PRIVATE
@@ -165,7 +141,7 @@ function RoomCard({
             </div>
             {room.description && (
               <div style={{ fontSize: 12, color: sub, marginBottom: 4 }}>
-                {highlight ? highlight(room.description) : room.description}
+                {highlightFn ? highlightFn(room.description) : room.description}
               </div>
             )}
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
@@ -311,6 +287,29 @@ export default function RoomsPage() {
 
   const bg = "#0a0a0a", surf = "#111111", bdr = "#1e1e1e", bdr2 = "#2a2a2a";
   const text = "#dcdcdc", sub = "#888888", mono = "'IBM Plex Mono',monospace", sans = "'IBM Plex Sans',sans-serif";
+
+  const q = searchQuery.trim().toLowerCase();
+  const filteredRooms = q
+    ? rooms.filter(e =>
+        e.rooms.name.toLowerCase().includes(q) ||
+        (e.rooms.description ?? "").toLowerCase().includes(q)
+      )
+    : rooms;
+
+  const highlight = (str: string): React.ReactNode => {
+    if (!q) return str;
+    const idx = str.toLowerCase().indexOf(q);
+    if (idx === -1) return str;
+    return (
+      <>
+        {str.slice(0, idx)}
+        <mark style={{ background: "#4da8ff33", color: "#4da8ff", borderRadius: 2, padding: "0 1px" }}>
+          {str.slice(idx, idx + q.length)}
+        </mark>
+        {str.slice(idx + q.length)}
+      </>
+    );
+  };
 
   const inputStyle: React.CSSProperties = {
     width: "100%", padding: "10px 12px", borderRadius: 7,
@@ -464,7 +463,7 @@ export default function RoomsPage() {
                   confirmDeleteId={confirmDeleteId}
                   setConfirmDeleteId={setConfirmDeleteId}
                   deleting={deleting}
-                  highlight={highlight}
+                  highlightFn={highlight}
                 />
               ))
             )}
