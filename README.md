@@ -1,110 +1,123 @@
 # Writers Room
 
-A collaborative AI writing space with multiple specialized agents. Mention agents by name to bring them into the conversation — they only consume tokens when called.
+A collaborative AI workspace where multiple specialized agents help you write, research, edit, and think — together.
 
-**Live:** [writersroom.fredericlabadie.com](https://writersroom.fredericlabadie.com)  
-**Source:** [github.com/fredericlabadie/writers-room](https://github.com/fredericlabadie/writers-room)
+<!-- SCREENSHOT: Drop a 1400px wide screenshot of the chat interface here showing at least two agent responses and the director card. Filename: screenshot.png -->
+<!-- ![Writers Room](./screenshot.png) -->
 
-## Showcasing (portfolio)
+**Live:** [writersroom.fredericlabadie.com](https://writersroom.fredericlabadie.com)
 
-Worth doing if you use this as a sample on your site or in interviews:
+---
 
-- **Pin** the [writers-room](https://github.com/fredericlabadie/writers-room) repo and add **topics** (e.g. `nextjs`, `typescript`, `supabase`, `ai`, `rag`).
-- Add a **screenshot or short screen recording** (login → room → @mention → reply) in the GitHub repo description, a PR description, or your personal site—avoid secrets and real user data in the capture.
-- In interviews, lead with one line: *multi-agent chat with RAG over uploads, auth, and production deploy*—then deep-link to a folder (e.g. `app/api/chat/`, `lib/artifacts/`) if they ask.
-- **Optional:** a tiny **case study** (problem → what you built → stack) on your site or in the special profile repo README; link **live** + **source** side by side.
+## What it is
 
-### Link from your main GitHub repo (e.g. profile `username/username`)
+Writers Room gives you a cast of AI agents with distinct roles and voices. You call them by name in your message — `@researcher`, `@writer`, `@editor` — and they respond in character. Call multiple agents in a single message and they react to each other. The `@director` synthesizes everything and tells the room what to do next.
 
-Paste something like this into that repo’s `README.md` (or your personal site) and adjust the copy to your voice:
+Four room types, each with five purpose-built agents:
 
-```markdown
-### Writers Room — story & worldbuilding studio
+| Room | Agents | Use it for |
+|---|---|---|
+| **Writers Room** | researcher · writer · editor · critic · director | Essays, articles, scripts, brainstorming |
+| **Job Hunt** | researcher · strategist · writer · coach · networker | Interview prep, applications, outreach |
+| **Career** | navigator · advocate · planner · writer · scheduler | Advancement, visibility, promotion planning |
+| **Publishing** | scout · editor · pitcher · marketer · advocate | Queries, submissions, launch strategy |
 
-- **Live:** <https://writersroom.fredericlabadie.com>
-- **Code:** <https://github.com/fredericlabadie/writers-room>
+---
 
-Next.js, Supabase, multi-agent @mentions, artifact RAG, NotebookLM export bridge, Vercel.
+## Multi-agent syntax
+
+```
+@researcher @writer          → parallel: both respond to your message independently
+@researcher → @writer        → chain: writer sees researcher's response and reacts to it
+@researcher → @writer → @editor  → three-agent chain, each handing off to the next
 ```
 
-## Agents
+When the `@director` synthesizes, their **Next move** suggestion becomes a clickable chain button — one click fires the recommended agents in sequence.
 
-| Handle | Role |
-|---|---|
-| `@researcher` | Facts, context, source suggestions |
-| `@writer` | Drafts, prose, narrative development |
-| `@editor` | Revisions, structure, clarity |
-| `@critic` | Challenges assumptions, stress-tests ideas |
-| `@director` | Story guide: synthesizes and keeps worldbuilding on track |
+---
 
-## Features
+<!-- SCREENSHOT: Drop a screenshot of the Configure Roles screen showing voice picker and composed prompt preview. Filename: screenshot-roles.png -->
+<!-- ![Configure Roles](./screenshot-roles.png) -->
 
-- **Google + GitHub OAuth** — one-click login, no passwords
-- **Private & shared rooms** — create your own space or invite collaborators
-- **Living chat log** — every agent call includes the full room history as context
-- **Token-efficient** — agents only fire when `@`-mentioned
-- **Persistent history** — conversations saved to Supabase Postgres
-- **Role-tuned generation** — each agent uses different temperature and token budgets
-- **Auto-guide synthesis** — when 2+ agents are mentioned, `@director` closes with a decision and next move
-- **NotebookLM bridge** — save your NotebookLM URL and export a room Lore Pack for long-term lore storage
-- **Artifacts + RAG** — upload book bibles/docs/images and ground replies with citations
-- **Section tone controls** — extract mood from Spotify tracks and apply tone by section
-- **AI review mode** — share signed, scoped review links with Claude/other AIs
+## Key features
 
-**Related (separate codebase):** [VibeReader](https://github.com/fredericlabadie/VibeReader) — book ↔ playlist suggestions. Reuse the same `ANTHROPIC_API_KEY` and `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` in its `.env.local`.
+**Configure Roles** — give each agent context about your project, set their voice (persona, genre, career perspective), add up to 13 inspirations. Changes reflect live in the composed prompt preview. Export any agent's full system prompt as `.txt`, or all five as a single `.md` file.
+
+**Directions** — star or manually save director syntheses to a pinned panel. Up to 5 directions stay visible above the chat and get injected into every agent call. The room builds toward something.
+
+**Chain + parallel calls** — type `@a → @b` or use the `→` button in the floating dock next to each agent chip. Agents in a chain receive role-specific handoff prompts — the editor knows it's editing a writer's draft, not starting from scratch.
+
+**@scheduler** — in Job Hunt and Career rooms, the scheduler surfaces time-sensitive tasks and suggests calendar events. Google users get direct calendar creation. GitHub users get a `.ics` download that opens in any calendar app.
+
+**Session export** — download the full conversation as `.md` from the header `⤴` button or `⌘K`. Includes all agent responses, directions, and artifacts.
+
+**Realtime sync** — multiple users in the same room see each other's messages live via Supabase Realtime.
+
+**Response length** — `⊟ terse` / `⊡ normal` / `⊞ verbose` toggle above the input controls each agent's `max_tokens` multiplier (0.4× / 1.0× / 1.8×).
+
+---
 
 ## Stack
 
-- **Next.js 14** (App Router + TypeScript)
-- **NextAuth v5** (Google + GitHub OAuth)
-- **Supabase** (Postgres database + auth helpers)
-- **Anthropic Claude** (claude-sonnet-4-5 via server-side proxy)
-- **Vercel** (hosting + edge functions)
+- **Next.js 14** (App Router) + TypeScript
+- **Anthropic claude-sonnet-4-5** — all agent calls
+- **NextAuth v5** — Google + GitHub OAuth, Google Calendar scope
+- **Supabase** — Postgres, Row Level Security, Realtime subscriptions, vector storage for RAG
+- **Vercel** — deployment
 
-## Setup
+---
 
-See the [`/docs`](./docs) folder:
+## Architecture notes
 
-1. [Repo Setup](./docs/01-repo-setup.md)
-2. [Supabase Setup](./docs/02-supabase-setup.md)
-3. [OAuth Setup](./docs/03-oauth-setup.md)
-4. [Vercel Deploy](./docs/04-vercel-deploy.md)
-5. [Scaleway DNS](./docs/05-scaleway-dns.md)
-6. [Artifacts + RAG + Review Mode](./docs/06-artifacts-rag-review.md)
+All agent calls go through `/api/chat`. Each call receives the room's message history, the user's message, pinned directions as a context block, the agent's composed system prompt (base + voice + inspirations + user context), and an optional `chainContext` (the previous agent's full response in chain mode). The server applies a role-specific handoff prompt when `previousPersona` is present.
 
-Or open [`docs/index.html`](./docs/index.html) for a visual overview.
+Rate limiting: 30 agent API calls per user per hour, enforced server-side via a `rate_limits` Supabase table.
 
-## Local Development
+Agent system prompts live in `lib/personas.ts` and are editable directly in the GitHub web editor — no local setup needed. Commits deploy to Vercel in ~2 minutes.
+
+---
+
+## Local development
 
 ```bash
-cp .env.example .env.local
-# Fill in all values in .env.local
-
+git clone https://github.com/fredericlabadie/Writers-room
+cd Writers-room
 npm install
+cp .env.example .env.local
+# Fill in env vars (see below)
 npm run dev
-# → http://localhost:3000
 ```
 
-## Project Structure
+**Required env vars:**
 
+```env
+ANTHROPIC_API_KEY=
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+AUTH_SECRET=
+NEXTAUTH_URL=http://localhost:3000
+AUTH_GOOGLE_ID=
+AUTH_GOOGLE_SECRET=
+AUTH_GITHUB_ID=
+AUTH_GITHUB_SECRET=
 ```
-writers-room/
-├── app/
-│   ├── api/
-│   │   ├── auth/[...nextauth]/   # OAuth endpoints
-│   │   ├── chat/                 # Anthropic proxy (auth-gated)
-│   │   ├── messages/             # Load / save messages
-│   │   └── rooms/                # CRUD + invite join
-│   ├── login/                    # OAuth login page
-│   └── rooms/
-│       ├── page.tsx              # Room dashboard
-│       └── [roomId]/page.tsx     # The writers room itself
-├── components/
-│   └── WritersRoom.tsx           # Main chat UI
-├── lib/
-│   ├── auth.ts                   # NextAuth config
-│   ├── personas.ts               # Agent definitions
-│   └── supabase.ts               # DB clients
-├── types/index.ts
-└── middleware.ts                 # Route protection
+
+**Optional:**
+```env
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
 ```
+
+---
+
+## Editing agent prompts
+
+All 16 agent system prompts are in [`lib/personas.ts`](./lib/personas.ts). To edit:
+
+1. Open the file in the GitHub web editor
+2. Find the agent by name (e.g. `pitcher:`)
+3. Edit the `system:` string
+4. Commit — Vercel deploys automatically in ~2 minutes
+
+Git history gives you version control on every prompt change.
