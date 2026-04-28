@@ -29,7 +29,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 // Handoff system prompt additions for chained calls — tell each agent who passed to them and why
-const HANDOFF_PROMPTS: Partial<Record<PersonaId, Record<PersonaId, string>>> = {
+const HANDOFF_PROMPTS: Partial<Record<PersonaId, Partial<Record<PersonaId, string>>>> = {
   writer: {
     researcher: "@researcher has just provided research. Your job: turn this material into a draft. Don't summarise the research — write from it.",
     critic:     "@critic has identified weaknesses. Your job: write a revised version that addresses them directly.",
