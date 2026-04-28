@@ -356,7 +356,7 @@ function DirectionsPanel({ directions, onRemove }: { directions: string[]; onRem
 }
 
 // Floating draggable dock (desktop)
-function FloatingDock({ onMention, agentCtx }: { onMention: (id: AgentId) => void; agentCtx: Record<string, string> }) {
+function FloatingDock({ onMention, onChain, agentCtx }: { onMention: (id: AgentId) => void; onChain: (id: AgentId) => void; agentCtx: Record<string, string> }) {
   const [pos, setPos]   = useState<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState(false);
   const [hov, setHov]   = useState<string | null>(null);
@@ -430,15 +430,27 @@ function FloatingDock({ onMention, agentCtx }: { onMention: (id: AgentId) => voi
               </div>
             </div>
           )}
-          <button onClick={() => onMention(a.id)} style={{
-            width:48, height:48, background:a.color+"16",
-            border:`1.5px solid ${a.color}55`, borderRadius:10,
-            display:"flex", flexDirection:"column", alignItems:"center",
-            justifyContent:"center", gap:2, cursor:"pointer",
-          }}>
-            <span style={{ fontSize:19, color:a.color }}>{a.icon}</span>
-            <span style={{ fontFamily:T.mono, fontSize:6.5, color:a.color+"99" }}>{a.id.slice(0,3)}</span>
-          </button>
+          <div style={{ display:"flex", gap:3 }}>
+            {/* @ parallel */}
+            <button onClick={() => onMention(a.id)} title={`@${a.id} (parallel)`} style={{
+              width:40, height:48, background:a.color+"16",
+              border:`1.5px solid ${a.color}55`, borderRadius:"8px 0 0 8px",
+              display:"flex", flexDirection:"column", alignItems:"center",
+              justifyContent:"center", gap:2, cursor:"pointer",
+            }}>
+              <span style={{ fontSize:17, color:a.color }}>{a.icon}</span>
+              <span style={{ fontFamily:T.mono, fontSize:6, color:a.color+"99" }}>@{a.id.slice(0,3)}</span>
+            </button>
+            {/* → chain */}
+            <button onClick={() => onChain(a.id)} title={`→ @${a.id} (chain — reacts to previous)`} style={{
+              width:18, height:48, background:a.color+"0a",
+              border:`1.5px solid ${a.color}33`, borderLeft:"none", borderRadius:"0 8px 8px 0",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              cursor:"pointer", padding:0,
+            }}>
+              <span style={{ fontSize:9, color:a.color+"88", fontFamily:T.mono }}>→</span>
+            </button>
+          </div>
         </div>
       ))}
     </div>
@@ -897,51 +909,118 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     inputRef.current?.focus();
   };
 
+  // Insert chain arrow → @agent into input
+  const insertChain = (id: AgentId) => {
+    setInput(prev => {
+      const trimmed = prev.trimEnd();
+      // If input already ends with a mention, append →
+      const sep = trimmed ? " → " : "";
+      return trimmed + sep + `@${id} `;
+    });
+    inputRef.current?.focus();
+  };
+
+  // Parse call syntax from user message:
+  // "@researcher @writer"        → parallel: ["researcher","writer"]
+  // "@researcher → @writer"      → chain: [["researcher","writer"]]
+  // "@researcher @writer → @editor" → parallel researcher+writer, then chain editor
+  // Returns: { mode: "parallel"|"chain", calls: AgentId[][] }
+  // Each inner array is a sequential chain; parallel = multiple single-item arrays
+  const parseCallSyntax = (text: string): { mode: "parallel"|"chain"; calls: AgentId[][] } => {
+    // Split on → to detect chain segments
+    const segments = text.split(/\s*→\s*/);
+    if (segments.length > 1) {
+      // Chain mode — each segment can have one or more agents
+      // We take only the first agent from each segment for the chain
+      const chains: AgentId[] = [];
+      for (const seg of segments) {
+        const re = /@(researcher|writer|editor|critic|director)/gi;
+        let m;
+        while ((m = re.exec(seg)) !== null) {
+          const id = m[1].toLowerCase() as AgentId;
+          if (!chains.includes(id)) chains.push(id);
+        }
+      }
+      return { mode: "chain", calls: chains.map(id => [id]) };
+    }
+    // Parallel mode — all mentions fire independently
+    const mentions = parseMentions(text);
+    return { mode: "parallel", calls: mentions.map(id => [id]) };
+  };
+
+  // Build per-agent agentContext string
+  const buildAgentContext = (personaId: string): string | null => {
+    return [
+      agentInspirations[personaId]?.length
+        ? "INSPIRATIONS:\n" + agentInspirations[personaId].map((i: string) => `- ${i}`).join("\n")
+        : null,
+      agentCtx[personaId] || null,
+      (() => {
+        const v = agentVoices[personaId];
+        if (!v) return null;
+        const parts = [
+          v.persona ? `Write in the style of ${v.persona}.` : null,
+          v.genre ? `Genre: ${v.genre}.` : null,
+          v.career ? `Perspective: ${v.career}.` : null,
+        ].filter(Boolean);
+        return parts.length ? parts.join(' ') : null;
+      })(),
+    ].filter(Boolean).join(' ') || null;
+  };
+
   // Insert @mention into input
   const insertMention = (id: AgentId) => {
     setInput(prev => prev + `@${id} `);
     inputRef.current?.focus();
   };
 
-  // Send message
+  // Send message — supports both parallel (@a @b) and chain (@a → @b) syntax
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || Object.keys(loading).length > 0) return;
     setInput("");
     setRateLimitError(null);
 
-    // Save user message to DB — use the returned real ID for Realtime dedup
+    // Save user message
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roomId: room.id, content: text }),
     });
     const saved = await res.json();
-    if (saved.id) seenIds.current.add(saved.id); // mark as seen before Realtime fires
+    if (saved.id) seenIds.current.add(saved.id);
     const userMsg: Message = { ...saved, role: "user", user_name: currentUser.name, user_avatar: currentUser.image };
     setMessages(prev => [...prev, userMsg]);
     setScreen("chat");
 
-    const mentions = parseMentions(text);
-    if (!mentions.length) return;
+    const { mode, calls } = parseCallSyntax(text);
+    const allMentions = calls.flat();
+    if (!allMentions.length) return;
 
-    const newLoading: Record<string, boolean> = {};
-    mentions.forEach(id => { newLoading[id] = true; });
-    setLoading(newLoading);
-
-    // Build history snapshot; prepend pinned directions as context
+    // Directions context block
     const directionsBlock = directions.length > 0
-      ? "PINNED DIRECTIONS:\n" + directions.map((d, i) => `${i + 1}. ${d}`).join("\n")
-      : null;
+      ? "PINNED DIRECTIONS:" + directions.map((d, i) => `${i + 1}. ${d}`).join("") : null;
 
-    const historySnapshot = [...messages, userMsg].map(m => ({
+    // Base history (full room log) — used for parallel, and as base for chain
+    const baseHistory = [...messages, userMsg].map(m => ({
       role: m.role, persona: m.persona, content: m.content, user_name: m.user_name,
     }));
     if (directionsBlock) {
-      historySnapshot.unshift({ role: "system", persona: undefined, content: directionsBlock, user_name: undefined });
+      baseHistory.unshift({ role: "system", persona: undefined, content: directionsBlock, user_name: undefined });
     }
 
-    for (const personaId of mentions) {
+    // Mark all mentioned agents as loading
+    const newLoading: Record<string, boolean> = {};
+    allMentions.forEach(id => { newLoading[id] = true; });
+    setLoading(newLoading);
+
+    // ── Helper: call one agent and append result ───────────────────────────
+    const callAgent = async (
+      personaId: AgentId,
+      history: Array<{ role: string; persona?: string; content: string; user_name?: string }>,
+      chainContext: string | null, // the previous agent's response in a chain
+      previousPersonaId: AgentId | null,
+    ): Promise<string | null> => {
       try {
         const agentRes = await fetch("/api/chat", {
           method: "POST",
@@ -950,23 +1029,11 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
             personaId,
             userMessage: text,
             roomId: room.id,
-            history: historySnapshot,
-            agentContext: [
-              agentInspirations[personaId]?.length
-                ? "INSPIRATIONS:\n" + agentInspirations[personaId].map((i: string) => `- ${i}`).join("\n")
-                : null,
-              agentCtx[personaId] || null,
-              (() => {
-                const v = agentVoices[personaId];
-                if (!v) return null;
-                const parts = [
-                  v.persona ? `Write in the style of ${v.persona}.` : null,
-                  v.genre ? `Genre: ${v.genre}.` : null,
-                  v.career ? `Perspective: ${v.career}.` : null,
-                ].filter(Boolean);
-                return parts.length ? parts.join(' ') : null;
-              })(),
-            ].filter(Boolean).join(' ') || null,
+            history,
+            allMentions,
+            chainContext,     // server uses this when present for the handoff prompt
+            previousPersona: previousPersonaId,
+            agentContext: buildAgentContext(personaId),
           }),
         });
 
@@ -974,12 +1041,10 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
           const err = await agentRes.json();
           setRateLimitError(err.message ?? "Rate limit reached. Try again next hour.");
           setLoading({});
-          return;
+          return null;
         }
 
         const { text: agentText, id: agentId } = await agentRes.json();
-
-        // Mark the DB id as seen so Realtime doesn't duplicate it
         if (agentId) seenIds.current.add(agentId);
 
         const agentMsg: Message = {
@@ -990,11 +1055,39 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
           created_at: now(),
         };
         setMessages(prev => [...prev, agentMsg]);
-        historySnapshot.push({ role: "agent", persona: personaId, content: agentText, user_name: undefined });
-      } catch { /* skip failed agent */ }
-      setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
+        return agentText;
+      } catch {
+        return null;
+      } finally {
+        setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
+      }
+    };
+
+    if (mode === "parallel") {
+      // All agents get the same base history, fire sequentially
+      const historySnapshot = [...baseHistory];
+      for (const personaId of allMentions) {
+        const result = await callAgent(personaId, historySnapshot, null, null);
+        if (result === null && Object.keys(loading).length === 0) return;
+        if (result) historySnapshot.push({ role: "agent", persona: personaId, content: result, user_name: undefined });
+      }
+    } else {
+      // Chain: each agent gets original prompt + ONLY the previous agent's response
+      let previousResponse: string | null = null;
+      let previousPersonaId: AgentId | null = null;
+      for (const personaId of allMentions) {
+        // Chain history: base history + just the previous agent's response (Option B)
+        const chainHistory = previousResponse && previousPersonaId
+          ? [...baseHistory, { role: "agent" as const, persona: previousPersonaId, content: previousResponse, user_name: undefined }]
+          : [...baseHistory];
+
+        const result = await callAgent(personaId, chainHistory, previousResponse, previousPersonaId);
+        if (result === null && Object.keys(loading).length === 0) return;
+        previousResponse = result;
+        previousPersonaId = personaId;
+      }
     }
-  }, [input, loading, messages, room.id, currentUser, agentCtx]);
+  }, [input, loading, messages, room.id, currentUser, agentCtx, directions, agentInspirations, agentVoices]);
 
   // Delete a message from local state
   const deleteMsg = (id: string) => setMessages(prev => prev.filter(m => m.id !== id));
@@ -1293,7 +1386,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
           )}
 
           {/* Floating dock */}
-          {!isMobile && <FloatingDock onMention={insertMention} agentCtx={agentCtx} />}
+          {!isMobile && <FloatingDock onMention={insertMention} onChain={insertChain} agentCtx={agentCtx} />}
 
           {/* Input bar */}
           <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:`linear-gradient(transparent, ${T.bg} 36%)`, padding:"28px 24px 20px" }}>
@@ -1311,7 +1404,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                  placeholder={isReadOnly ? "Read-only review mode — sign in to chat" : "Type your message… @ to mention an agent"}
+                  placeholder={isReadOnly ? "Read-only review mode — sign in to chat" : "Type… @agent parallel · @a → @b chain · TAB to cycle"}
                   disabled={isReadOnly}
                   rows={1}
                   style={{ flex:1, background:"none", border:"none", outline:"none", resize:"none", fontFamily:T.sans, fontSize:14, color:T.text, lineHeight:1.55, maxHeight:120, overflowY:"auto" }}
@@ -1340,7 +1433,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                 padding:"0 2px",
               }}>
                 <span style={{ fontFamily:T.mono, fontSize:8.5, color:"#2e2e2e", letterSpacing:"0.08em" }}>
-                  ENTER SEND · SHIFT+ENTER LINE · TAB CYCLE AGENTS · ⌘1–5 AGENT · ⌘K COMMANDS
+                  ENTER SEND · TAB CYCLE · ⌘1–5 AGENT · @a @b PARALLEL · @a → @b CHAIN · ⌘K
                 </span>
                 <span style={{ fontFamily:T.mono, fontSize:8.5, color:"#2e2e2e", letterSpacing:"0.06em", display:"flex", alignItems:"center", gap:8 }}>
                   hover to react:

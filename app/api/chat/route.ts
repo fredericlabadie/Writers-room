@@ -28,6 +28,48 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+// Handoff system prompt additions for chained calls — tell each agent who passed to them and why
+const HANDOFF_PROMPTS: Partial<Record<PersonaId, Record<PersonaId, string>>> = {
+  writer: {
+    researcher: "@researcher has just provided research. Your job: turn this material into a draft. Don't summarise the research — write from it.",
+    critic:     "@critic has identified weaknesses. Your job: write a revised version that addresses them directly.",
+    editor:     "@editor has revised the prose. Your job: develop this further as a full draft.",
+    director:   "@director has synthesised the room. Your job: draft the next section based on this direction.",
+  },
+  editor: {
+    writer:     "@writer has produced a draft. Your job: edit it — quote, revise, explain why. Be specific.",
+    researcher: "@researcher has provided material. Your job: structure and sharpen it into clean prose.",
+    critic:     "@critic has flagged problems. Your job: make the specific edits that fix them.",
+    director:   "@director has given direction. Your job: apply that direction as concrete editorial changes.",
+  },
+  critic: {
+    writer:     "@writer has produced a draft. Your job: find the single weakest assumption and challenge it directly.",
+    researcher: "@researcher has presented findings. Your job: stress-test the framing and identify what's missing.",
+    editor:     "@editor has revised the work. Your job: assess whether the edits actually solve the core problem.",
+    director:   "@director has synthesised. Your job: challenge the synthesis — is this actually the right direction?",
+  },
+  researcher: {
+    writer:     "@writer has produced a draft. Your job: fact-check it and surface any claims that need sourcing.",
+    critic:     "@critic has raised objections. Your job: find evidence that either supports or challenges them.",
+    editor:     "@editor has revised the work. Your job: verify that all factual claims survived the edit intact.",
+    director:   "@director has given direction. Your job: surface research that will help execute it.",
+  },
+  director: {
+    researcher: "@researcher has grounded the room in facts. @writer has drafted. @editor has revised. Your job: synthesise and set the next move.",
+    writer:     "@writer has drafted. Your job: assess the draft against the goal and set the next move.",
+    critic:     "@critic has challenged. Your job: weigh the critique and decide whether to redirect or continue.",
+    editor:     "@editor has revised. Your job: assess whether the work is ready and set the next move.",
+  },
+};
+
+function getHandoffPrompt(currentPersona: PersonaId, previousPersona: PersonaId | null | undefined): string {
+  if (!previousPersona) return "";
+  const prompt = HANDOFF_PROMPTS[currentPersona]?.[previousPersona];
+  return prompt ? `
+
+HANDOFF: ${prompt}` : "";
+}
+
 function buildPrompt(
   userMessage: string,
   history: Array<{ role: string; persona?: string; content: string; user_name?: string }>,
@@ -113,7 +155,9 @@ export async function POST(req: Request) {
     retrieval?: Partial<RetrievalSettings>;
     selectedArtifactIds?: string[];
     sectionId?: string | null;
-    agentContext?: string | null; // per-agent user notes from Configure Roles
+    agentContext?: string | null;
+    chainContext?: string | null;      // previous agent's response (chain mode)
+    previousPersona?: PersonaId | null; // who wrote chainContext
   };
   const { personaId, userMessage, roomId, history } = body;
 
@@ -186,14 +230,24 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n\n");
 
-  const prompt = buildPrompt(userMessage, history, persona.name, combinedContext, body.agentContext);
+  // Chain mode: inject handoff prompt into system and prepend previous response
+  const handoffAddition = getHandoffPrompt(personaId, body.previousPersona ?? null);
+  const systemPrompt = persona.system + handoffAddition;
+
+  // Build the user-facing prompt; in chain mode prepend the previous agent's output
+  let promptUserMessage = userMessage;
+  if (body.chainContext && body.previousPersona) {
+    promptUserMessage = `${userMessage}\n\n[${body.previousPersona.toUpperCase()} RESPONSE]:\n${body.chainContext}`;
+  }
+
+  const prompt = buildPrompt(promptUserMessage, history, persona.name, combinedContext, body.agentContext);
 
   try {
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: persona.generation.maxTokens,
       temperature: persona.generation.temperature,
-      system: persona.system,
+      system: systemPrompt,
       messages: [{ role: "user", content: prompt }],
     });
 
