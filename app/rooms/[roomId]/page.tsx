@@ -48,6 +48,7 @@ export default async function RoomPage({ params }: Props) {
       }}
       userRole={userRole}
       reviewScope={review?.scope ?? null}
+      hasCalendarAccess={session?.hasCalendarAccess ?? false}
     />
   );
 }

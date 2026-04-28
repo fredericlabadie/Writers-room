@@ -36,6 +36,7 @@ interface Props {
   currentUser: { id: string; name: string; image: string | null };
   userRole: "owner" | "member";
   reviewScope: ReviewScope | null;
+  hasCalendarAccess: boolean;
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -682,7 +683,7 @@ function FeatureModal({ title, onClose, children }: { title: string; onClose: ()
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-export default function WritersRoom({ room: initialRoom, currentUser, reviewScope }: Props) {
+export default function WritersRoom({ room: initialRoom, currentUser, reviewScope, hasCalendarAccess }: Props) {
   const isReadOnly = reviewScope !== null && !reviewScope?.write;
   const roomType = (initialRoom.room_type ?? "writers") as import("@/types").RoomType;
   const AGENTS = getAgentsForRoom(roomType);
@@ -1297,6 +1298,42 @@ ${directorSynthesis}`,
     setCreatedEvents(prev => { const n = new Set(prev); n.delete(idx); return n; });
   };
 
+  // Generate and download a .ics calendar file for a single event
+  const downloadIcs = (ev: typeof pendingCalendarEvents[0]) => {
+    const startDate = ev.date ? new Date(ev.date) : (() => {
+      const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d;
+    })();
+    const durationMatch = (ev.duration ?? "1 hour").toLowerCase().match(/(\d+\.?\d*)\s*(h|m)/);
+    const durationMins = durationMatch
+      ? durationMatch[2] === "h" ? parseFloat(durationMatch[1]) * 60 : parseFloat(durationMatch[1])
+      : 60;
+    const endDate = new Date(startDate.getTime() + durationMins * 60 * 1000);
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    const uid = `${Date.now()}@writersroom`;
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Writers Room//EN",
+      "BEGIN:VEVENT",
+      `UID:${uid}`,
+      `DTSTAMP:${fmt(new Date())}`,
+      `DTSTART:${fmt(startDate)}`,
+      `DTEND:${fmt(endDate)}`,
+      `SUMMARY:${ev.title}`,
+      ev.notes ? `DESCRIPTION:${ev.notes.replace(/\n/g, "\\n")}` : "",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].filter(Boolean).join("\r\n");
+
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${ev.title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Clear conversation
   const clearConversation = () => {
     setMessages([]);
@@ -1613,7 +1650,7 @@ ${directorSynthesis}`,
                         <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
                           {isDone ? (
                             <span style={{ fontFamily:T.mono, fontSize:9, color:"#0fe898" }}>✓ added to calendar</span>
-                          ) : (
+                          ) : hasCalendarAccess ? (
                             <button
                               onClick={() => createCalendarEvent(idx)}
                               disabled={isCreating}
@@ -1626,6 +1663,18 @@ ${directorSynthesis}`,
                               }}
                             >
                               {isCreating ? "adding…" : "+ add to calendar"}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => downloadIcs(ev)}
+                              title="Download as .ics — opens in Google Calendar, Apple Calendar, Outlook"
+                              style={{
+                                padding:"4px 12px", borderRadius:5,
+                                background:"#1a1a1a", border:`1px solid ${T.bdr2}`,
+                                color:T.sub, fontFamily:T.mono, fontSize:9, cursor:"pointer",
+                              }}
+                            >
+                              ⤵ download .ics
                             </button>
                           )}
                           <button
