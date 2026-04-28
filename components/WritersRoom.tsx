@@ -85,15 +85,22 @@ function ReactBar({ msgId, active, onReact }: {
   active: string[];
   onReact: (msgId: string, emoji: string) => void;
 }) {
+  const REACT_META: Record<string, { label: string; title: string }> = {
+    "👍": { label: "useful",     title: "Mark as useful" },
+    "💡": { label: "insight",    title: "Key insight — worth remembering" },
+    "⭐": { label: "direction",  title: "Save as direction (pins to top)" },
+  };
+
   return (
     <div style={{ display:"flex", gap:4, marginTop:10 }}>
       {REACTIONS.map(emoji => {
         const isActive = active.includes(emoji);
+        const meta = REACT_META[emoji];
         return (
           <button
             key={emoji}
             onClick={() => onReact(msgId, emoji)}
-            title={emoji === "⭐" ? "Save as direction" : undefined}
+            title={meta.title}
             style={{
               background: isActive ? "rgba(255,255,255,0.08)" : "none",
               border: `1px solid ${isActive ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.06)"}`,
@@ -101,8 +108,13 @@ function ReactBar({ msgId, active, onReact }: {
               fontSize:13, cursor:"pointer",
               opacity: isActive ? 1 : 0.45,
               transition:"all 0.15s",
-            }}
-          >{emoji}</button>
+              display:"flex", alignItems:"center", gap:4,
+            }}>
+            <span>{emoji}</span>
+            <span style={{ fontFamily:T.mono, fontSize:8, color: isActive ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.2)" }}>
+              {meta.label}
+            </span>
+          </button>
         );
       })}
     </div>
@@ -1279,6 +1291,24 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                 }}>@</button>
               )}
             </div>
+            {/* Reactions key — visible but unobtrusive below input */}
+            {!isMobile && (
+              <div style={{
+                maxWidth:720, margin:"6px auto 0",
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"0 2px",
+              }}>
+                <span style={{ fontFamily:T.mono, fontSize:8.5, color:"#2e2e2e", letterSpacing:"0.08em" }}>
+                  ENTER TO SEND · SHIFT+ENTER NEW LINE · ⌘K COMMANDS
+                </span>
+                <span style={{ fontFamily:T.mono, fontSize:8.5, color:"#2e2e2e", letterSpacing:"0.06em", display:"flex", alignItems:"center", gap:8 }}>
+                  hover to react:
+                  <span title="Mark as useful">👍 useful</span>
+                  <span title="Key insight">💡 insight</span>
+                  <span title="Save to directions">⭐ direction</span>
+                </span>
+              </div>
+            )}
             </div>
           </div>
         </div>
