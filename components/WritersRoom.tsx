@@ -1307,15 +1307,45 @@ ${directorSynthesis}`,
 
   // Load demo conversation
   const loadDemo = () => {
-    const demo: Message[] = [
-      { id:"d1", role:"user", content:"@researcher — what are the key tensions in the slow journalism movement?", created_at:now(), user_name:currentUser.name },
-      { id:"d2", role:"agent", persona:"researcher", content:"Four tensions stand out:\n(1) Depth vs. timeliness — readers want breaking news but reward depth.\n(2) Reader patience vs. engagement metrics — long reads win awards but lose clicks.\n(3) Prestige vs. revenue — high cost, low frequency.\n(4) Platform vs. ownership — distributed via social, dependent on owned channels.", created_at:now() },
-      { id:"d3", role:"user", content:"@critic — what worries you about this framing?", created_at:now(), user_name:currentUser.name },
-      { id:"d4", role:"agent", persona:"critic", content:"Slow journalism is a luxury product. The model assumes readers will wait. They won't. You're designing for an audience that doesn't exist at scale. And the economics don't work unless you have significant subscriber lock-in from day one.", created_at:now() },
-      { id:"d5", role:"user", content:"@writer — try an opening paragraph", created_at:now(), user_name:currentUser.name },
-      { id:"d6", role:"agent", persona:"writer", content:"In an era when attention is the scarcest resource, slow journalism makes an audacious bet on the reader. It says: trust me, this is worth an hour of your life. Sometimes it's right. The question is whether \"sometimes\" is enough to build a business on.", created_at:now() },
-      { id:"d7", role:"agent", persona:"director", content:"Taking @researcher's tensions and @critic's challenge: reframe around the business model, not the format. The interesting story is whether slow journalism can survive economically — not whether it's better. That's the real tension.\n\nNext move: @writer, try again with the business model as the hook.", created_at:now() },
-    ];
+    const demos: Record<string, Message[]> = {
+      writers: [
+        { id:"d1", role:"user", content:"@researcher — what are the key tensions in the slow journalism movement?", created_at:now(), user_name:currentUser.name },
+        { id:"d2", role:"agent", persona:"researcher", content:"Four tensions stand out:\n(1) Depth vs. timeliness — readers want breaking news but reward depth.\n(2) Reader patience vs. engagement metrics — long reads win awards but lose clicks.\n(3) Prestige vs. revenue — high cost, low frequency.\n(4) Platform vs. ownership — distributed via social, dependent on owned channels.", created_at:now() },
+        { id:"d3", role:"user", content:"@critic — what worries you about this framing?", created_at:now(), user_name:currentUser.name },
+        { id:"d4", role:"agent", persona:"critic", content:"Slow journalism is a luxury product. The model assumes readers will wait. They won't. You're designing for an audience that doesn't exist at scale. And the economics don't work unless you have significant subscriber lock-in from day one.", created_at:now() },
+        { id:"d5", role:"user", content:"@writer — try an opening paragraph", created_at:now(), user_name:currentUser.name },
+        { id:"d6", role:"agent", persona:"writer", content:"In an era when attention is the scarcest resource, slow journalism makes an audacious bet on the reader. It says: trust me, this is worth an hour of your life. Sometimes it's right. The question is whether \"sometimes\" is enough to build a business on.", created_at:now() },
+        { id:"d7", role:"agent", persona:"director", content:"Taking @researcher's tensions and @critic's challenge: reframe around the business model, not the format. The interesting story is whether slow journalism can survive economically — not whether it's better. That's the real tension.\n\nNext move: @writer, try again with the business model as the hook.", created_at:now() },
+      ],
+      jobhunt: [
+        { id:"d1", role:"user", content:"I have a final round interview at a Series B fintech startup for a Senior PM role. @researcher — what should I know about them?", created_at:now(), user_name:currentUser.name },
+        { id:"d2", role:"agent", persona:"researcher", content:"CLAIM: Series B fintechs hiring senior PMs typically have 3 key pressure points.\nEVIDENCE: (1) They've validated product-market fit but struggle with scaling ops. (2) Investors expect a roadmap shift from growth to monetisation. (3) Hiring bar is high — they want someone who's seen this movie before.\nSOURCE QUALITY: High — consistent across Crunchbase, product hiring postmortems.", created_at:now() },
+        { id:"d3", role:"user", content:"@strategist — how should I position my background?", created_at:now(), user_name:currentUser.name },
+        { id:"d4", role:"agent", persona:"strategist", content:"Lead with scale, not features. They don't need someone who can write PRDs — they need someone who's operated at the inflection point you're describing. Frame your narrative as: 'I've taken a product from traction to the messy middle — here's what I learned.'\n\nAvoid: talking about products you launched. Talk about decisions you made under uncertainty.", created_at:now() },
+        { id:"d5", role:"user", content:"@coach — what's the hardest question they'll ask?", created_at:now(), user_name:currentUser.name },
+        { id:"d6", role:"agent", persona:"coach", content:"'Tell me about a time you had to kill a project you championed.' They want to know you can separate your ego from your judgment. Weak answer: you pivoted gracefully. Strong answer: you killed it before anyone told you to, explained the reasoning to stakeholders, and redirected the team. Rehearse this one until it sounds like a story, not a lesson.", created_at:now() },
+        { id:"d7", role:"agent", persona:"director", content:"You have the research, the positioning, and the hardest question mapped. The gap is your opening — the first 90 seconds when they ask 'tell me about yourself'.\n\nNext move: @strategist, draft a 90-second opening that leads with the scale narrative.", created_at:now() },
+      ],
+      career: [
+        { id:"d1", role:"user", content:"I've been in my role 18 months. My manager likes me but I'm being passed over for the projects that lead to promotion. @navigator — what's happening?", created_at:now(), user_name:currentUser.name },
+        { id:"d2", role:"agent", persona:"navigator", content:"Classic visibility gap, not performance gap. You're doing the work but not the work that's visible to the people who matter. The projects that lead to promotion are almost always the ones with cross-functional stakeholders or exec exposure. Your manager likes you — that's necessary but not sufficient. Who else knows your name?", created_at:now() },
+        { id:"d3", role:"user", content:"@advocate — what do I actually do about it?", created_at:now(), user_name:currentUser.name },
+        { id:"d4", role:"agent", persona:"advocate", content:"Three moves: (1) Ask your manager directly which projects have exec visibility and volunteer specifically for those. (2) Send a short written update to your manager after every significant win — one paragraph, make it easy to forward. (3) Find one cross-functional project where you can own a deliverable. You want other teams to associate your name with execution, not just your own manager.", created_at:now() },
+        { id:"d5", role:"user", content:"@planner — give me a 90-day plan", created_at:now(), user_name:currentUser.name },
+        { id:"d6", role:"agent", persona:"planner", content:"Days 1-30: Audit visibility. List every person above your manager who knows your work. If it's fewer than three, that's your constraint.\nDays 30-60: Volunteer for one high-visibility project. Send your first written update within the first week.\nDays 60-90: Have the promotion conversation with your manager — not to ask for it, but to align on what 'ready' looks like. Make them say it out loud.", created_at:now() },
+        { id:"d7", role:"agent", persona:"director", content:"The diagnosis is clear, the moves are concrete, the plan is sequenced. The risk is that you execute the plan but the goalposts move because you never got alignment on what promotion actually requires.\n\nNext move: @advocate, draft the exact question to ask your manager about promotion criteria.", created_at:now() },
+      ],
+      publishing: [
+        { id:"d1", role:"user", content:"I've finished a narrative non-fiction book about a cold case. @scout — where does it fit in the market?", created_at:now(), user_name:currentUser.name },
+        { id:"d2", role:"agent", persona:"scout", content:"CLAIM: Narrative true crime non-fiction is healthy but increasingly competitive.\nEVIDENCE: Strong comps (I'll Be Gone in the Dark, Say Nothing) still sell. The market has bifurcated — literary true crime with a strong authorial voice does well; procedural rehashes don't.\nSOURCE QUALITY: High. The agent submission data is consistent with BookScan trends. Your angle matters more than the crime itself.", created_at:now() },
+        { id:"d3", role:"user", content:"@pitcher — what does my query letter need to say?", created_at:now(), user_name:currentUser.name },
+        { id:"d4", role:"agent", persona:"pitcher", content:"Lead with the crime in one sentence, then immediately pivot to what makes YOUR version of this story different. Agents see 50 cold case queries a week. The hook is your authorial access or angle, not the case.\n\nStructure: hook (1 sentence) → your angle / what makes this book yours (2 sentences) → comp titles (2 books, 1 film/podcast) → word count + your platform if relevant → brief bio.", created_at:now() },
+        { id:"d5", role:"user", content:"@marketer — what's my platform strategy before I have a deal?", created_at:now(), user_name:currentUser.name },
+        { id:"d6", role:"agent", persona:"marketer", content:"True crime has one of the strongest platform-to-book pipelines of any genre. If you don't have a podcast or Substack yet, start one now — not to build an audience before querying, but to demonstrate you understand how to reach your reader. Agents selling narrative non-fiction increasingly want to see this. Even 500 subscribers signals something.", created_at:now() },
+        { id:"d7", role:"agent", persona:"director", content:"Market fit is confirmed, pitch structure is clear, platform gap is identified. The query is the bottleneck.\n\nNext move: @pitcher, draft the full query letter using the structure above.", created_at:now() },
+      ],
+    };
+    const demo = demos[roomType] ?? demos.writers;
     setMessages(demo);
     setScreen("chat");
   };
@@ -1464,7 +1494,11 @@ ${directorSynthesis}`,
           {!isMobile && (
             <div style={{ width:264, background:T.surf, borderRight:`1px solid ${T.bdr}`, display:"flex", flexDirection:"column", flexShrink:0 }}>
               <div style={{ padding:"18px 20px 14px", borderBottom:`1px solid ${T.bdr}` }}>
-                <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.sub, letterSpacing:"0.16em" }}>THE ROOM</div>
+                <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                  <span style={{ color:roomConfig.color, fontSize:14 }}>{roomConfig.icon}</span>
+                  <span style={{ fontFamily:T.mono, fontSize:8.5, color:roomConfig.color, letterSpacing:"0.12em" }}>{roomConfig.label.toUpperCase()}</span>
+                </div>
+                <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginTop:4 }}>{roomConfig.description}</div>
               </div>
               <div style={{ flex:1, overflowY:"auto", padding:"10px 12px" }}>
                 {AGENTS.map(a => (
@@ -1489,8 +1523,17 @@ ${directorSynthesis}`,
           {/* Stage */}
           <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"0 24px", position:"relative" }}>
             <div style={{ textAlign:"center", marginBottom:36 }}>
-              <div style={{ fontFamily:T.mono, fontSize:isMobile?11:14, color:"#777", letterSpacing:"0.28em", marginBottom:14 }}>THE STAGE IS SET.</div>
-              <div style={{ fontFamily:T.sans, fontSize:isMobile?16:20, color:"#666" }}>Drop in an idea. Call an agent.</div>
+              <div style={{ fontFamily:T.mono, fontSize:isMobile?11:14, color:"#777", letterSpacing:"0.28em", marginBottom:14 }}>
+                {roomConfig.label.toUpperCase()} · READY
+              </div>
+              <div style={{ fontFamily:T.sans, fontSize:isMobile?16:20, color:"#666" }}>
+                {{
+                  writers:    "Drop in an idea. Call an agent.",
+                  jobhunt:    "What are you working on? Describe the role or company.",
+                  career:     "What's on your mind? Describe the situation.",
+                  publishing: "Tell me about your work. Where are you in the process?",
+                }[roomType] ?? "Drop in an idea. Call an agent."}
+              </div>
             </div>
             <div style={{ width:"100%", maxWidth:520 }}>
               <div style={{ background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:10, display:"flex", alignItems:"flex-end", padding:"12px 14px", gap:8 }}>
@@ -1499,7 +1542,14 @@ ${directorSynthesis}`,
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                  placeholder={isMobile ? "What are you working on?" : "What are you working on? @ to call an agent…"}
+                  placeholder={isMobile
+                    ? {
+                        writers: "What are you working on?",
+                        jobhunt: "Describe the role or company…",
+                        career:  "What's the situation?",
+                        publishing: "Tell me about your work…",
+                      }[roomType] ?? "What are you working on?"
+                    : `${roomConfig.description} — @ to call an agent`}
                   rows={2}
                   style={{ flex:1, background:"none", border:"none", outline:"none", resize:"none", fontFamily:T.sans, fontSize:14, color:T.text, lineHeight:1.55 }}
                 />
