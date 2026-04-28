@@ -960,7 +960,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const exportAllPrompts = () => {
     const sections = AGENTS.map(a => {
       const prompt = buildComposedPrompt(a.id);
-      return `## @${a.id} — ${a.label}\n\n\`\`\`\n${prompt}\n\`\`\``;
+      return `## @${a.id} — ${a.name}\n\n\`\`\`\n${prompt}\n\`\`\``;
     }).join("\n\n---\n\n");
     const md = `# Writers Room — Agent System Prompts\nExported: ${new Date().toLocaleString()}\n\n---\n\n${sections}`;
     const blob = new Blob([md], { type: "text/markdown" });
