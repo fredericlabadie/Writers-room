@@ -34,6 +34,7 @@ function RoomCard({
   confirmDeleteId,
   setConfirmDeleteId,
   deleting,
+  highlight,
 }: {
   entry: RoomEntry;
   onOpen: (id: string) => void;
@@ -41,6 +42,7 @@ function RoomCard({
   confirmDeleteId: string | null;
   setConfirmDeleteId: (id: string | null) => void;
   deleting: string | null;
+  highlight?: (text: string) => React.ReactNode;
 }) {
   const room = entry.rooms;
   const isOwner = entry.role === "owner";
@@ -79,6 +81,30 @@ function RoomCard({
     } else {
       setSwipeX(0); // snap closed
     }
+  };
+
+  const q = searchQuery.trim().toLowerCase();
+  const filteredRooms = q
+    ? rooms.filter(e =>
+        e.rooms.name.toLowerCase().includes(q) ||
+        (e.rooms.description ?? "").toLowerCase().includes(q)
+      )
+    : rooms;
+
+  // Highlight matching text in a string
+  const highlight = (text: string): React.ReactNode => {
+    if (!q) return text;
+    const idx = text.toLowerCase().indexOf(q);
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark style={{ background: "#4da8ff33", color: "#4da8ff", borderRadius: 2, padding: "0 1px" }}>
+          {text.slice(idx, idx + q.length)}
+        </mark>
+        {text.slice(idx + q.length)}
+      </>
+    );
   };
 
   const bg = "#0a0a0a", surf = "#111111", bdr = "#1e1e1e", bdr2 = "#2a2a2a";
@@ -127,7 +153,7 @@ function RoomCard({
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 500, color: text, marginBottom: 3, display: "flex", alignItems: "center", gap: 8 }}>
-              {room.name}
+              {highlight ? highlight(room.name) : room.name}
               {room.is_private && (
                 <span style={{ fontSize: 9, color: sub, fontFamily: mono, border: `1px solid ${bdr2}`, padding: "1px 5px", borderRadius: 3 }}>
                   PRIVATE
@@ -138,7 +164,9 @@ function RoomCard({
               )}
             </div>
             {room.description && (
-              <div style={{ fontSize: 12, color: sub, marginBottom: 4 }}>{room.description}</div>
+              <div style={{ fontSize: 12, color: sub, marginBottom: 4 }}>
+                {highlight ? highlight(room.description) : room.description}
+              </div>
             )}
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
               {room.last_message_at && (
@@ -225,6 +253,7 @@ export default function RoomsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     fetchRooms();
@@ -332,9 +361,41 @@ export default function RoomsPage() {
 
       {/* Content */}
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 24px 60px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: text }}>Your Rooms</h2>
-          <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, gap: 12 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: text, flexShrink: 0 }}>Your Rooms</h2>
+
+          {/* Search */}
+          {rooms.length > 3 && (
+            <div style={{ flex: 1, maxWidth: 240, position: "relative" }}>
+              <span style={{
+                position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)",
+                color: "#333", fontSize: 12, pointerEvents: "none",
+              }}>⌕</span>
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Filter rooms…"
+                style={{
+                  width: "100%", padding: "6px 10px 6px 26px",
+                  background: surf, border: `1px solid ${searchQuery ? "#4da8ff44" : bdr2}`,
+                  borderRadius: 6, color: searchQuery ? "#4da8ff" : sub,
+                  fontSize: 12, fontFamily: mono, outline: "none",
+                  transition: "border-color 0.15s, color 0.15s",
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  style={{
+                    position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: 14, lineHeight: 1,
+                  }}
+                >×</button>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
             <button onClick={() => { setShowJoin(true); setShowCreate(false); setError(""); }} style={{
               padding: "7px 14px", borderRadius: 6, background: surf,
               border: `1px solid ${bdr2}`, color: sub, fontSize: 12, cursor: "pointer", fontFamily: mono,
@@ -386,19 +447,29 @@ export default function RoomsPage() {
           </div>
         ) : (
           <div>
-            {rooms.map(entry => (
-              <RoomCard
-                key={entry.rooms.id}
-                entry={entry}
-                onOpen={id => router.push(`/rooms/${id}`)}
-                onDelete={deleteRoom}
-                confirmDeleteId={confirmDeleteId}
-                setConfirmDeleteId={setConfirmDeleteId}
-                deleting={deleting}
-              />
-            ))}
+            {filteredRooms.length === 0 && searchQuery ? (
+              <div style={{ textAlign: "center", padding: "40px 0" }}>
+                <p style={{ fontSize: 13, color: "#444", marginBottom: 6 }}>No rooms match "{searchQuery}"</p>
+                <button onClick={() => setSearchQuery("")} style={{ fontFamily: mono, fontSize: 11, color: sub, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                  clear filter
+                </button>
+              </div>
+            ) : (
+              filteredRooms.map(entry => (
+                <RoomCard
+                  key={entry.rooms.id}
+                  entry={{ ...entry, rooms: { ...entry.rooms, name: entry.rooms.name, description: entry.rooms.description } }}
+                  onOpen={id => router.push(`/rooms/${id}`)}
+                  onDelete={deleteRoom}
+                  confirmDeleteId={confirmDeleteId}
+                  setConfirmDeleteId={setConfirmDeleteId}
+                  deleting={deleting}
+                  highlight={highlight}
+                />
+              ))
+            )}
             {/* Mobile hint */}
-            {isMobile && rooms.some(r => r.role === "owner") && (
+            {isMobile && rooms.some(r => r.role === "owner") && !searchQuery && (
               <p style={{ textAlign: "center", fontFamily: mono, fontSize: 9, color: "#333", marginTop: 16, letterSpacing: "0.08em" }}>
                 swipe left to delete
               </p>

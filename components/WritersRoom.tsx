@@ -720,17 +720,58 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     };
   }, [room.id]);
 
-  // Keyboard shortcut: ⌘K
+  // Keyboard shortcuts
   useEffect(() => {
+    const AGENT_KEYS: Record<string, AgentId> = {
+      "1": "researcher", "2": "writer", "3": "editor", "4": "critic", "5": "director",
+    };
+
     const h = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const inInput = tag === "TEXTAREA" || tag === "INPUT";
+
+      // ⌘K — command palette (always)
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setModal(m => m === "command" ? null : "command");
+        return;
+      }
+
+      // Escape — close modal or clear input
+      if (e.key === "Escape") {
+        if (modal) { setModal(null); return; }
+        if (inInput && input) { setInput(""); return; }
+      }
+
+      // Shortcuts that only fire when input is focused
+      if (!inInput) return;
+
+      // Tab — cycle to next agent mention
+      if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const ids = AGENTS.map(a => a.id);
+        // Find last @mention in current input to decide which agent comes next
+        const lastMention = input.match(/@(\w+)\s*$/);
+        const lastIdx = lastMention ? ids.indexOf(lastMention[1] as AgentId) : -1;
+        const next = ids[(lastIdx + 1) % ids.length];
+        // Replace trailing @mention or append
+        const base = lastMention ? input.slice(0, input.lastIndexOf(`@${lastMention[1]}`)) : input;
+        setInput(base + `@${next} `);
+        return;
+      }
+
+      // ⌘1–5 — insert specific agent mention
+      if ((e.metaKey || e.ctrlKey) && AGENT_KEYS[e.key]) {
+        e.preventDefault();
+        const id = AGENT_KEYS[e.key];
+        setInput(prev => prev + `@${id} `);
+        return;
       }
     };
+
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, []);
+  }, [input, modal]);
 
   // Smart auto-scroll: only follow if already at bottom
   useEffect(() => {
@@ -1299,7 +1340,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                 padding:"0 2px",
               }}>
                 <span style={{ fontFamily:T.mono, fontSize:8.5, color:"#2e2e2e", letterSpacing:"0.08em" }}>
-                  ENTER TO SEND · SHIFT+ENTER NEW LINE · ⌘K COMMANDS
+                  ENTER SEND · SHIFT+ENTER LINE · TAB CYCLE AGENTS · ⌘1–5 AGENT · ⌘K COMMANDS
                 </span>
                 <span style={{ fontFamily:T.mono, fontSize:8.5, color:"#2e2e2e", letterSpacing:"0.06em", display:"flex", alignItems:"center", gap:8 }}>
                   hover to react:
