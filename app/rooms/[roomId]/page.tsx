@@ -20,7 +20,7 @@ export default async function RoomPage({ params }: Props) {
   if (session?.user?.id) {
     const { data: membership } = await supabase
       .from("room_members")
-      .select("role, rooms (id, name, description, is_private, invite_code, owner_id)")
+      .select("role, rooms (id, name, description, is_private, room_type, invite_code, owner_id)")
       .eq("room_id", params.roomId)
       .eq("user_id", session.user.id)
       .single();
@@ -31,7 +31,7 @@ export default async function RoomPage({ params }: Props) {
   } else {
     const { data } = await supabase
       .from("rooms")
-      .select("id, name, description, is_private, invite_code, owner_id")
+      .select("id, name, description, is_private, room_type, invite_code, owner_id")
       .eq("id", params.roomId)
       .single();
     if (!data) redirect("/rooms");

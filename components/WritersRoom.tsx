@@ -163,14 +163,15 @@ function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) =
 }
 
 // Agent message — unique treatment per role
-function AgentMessage({ msg, onDelete, reactions, onReact }: {
+function AgentMessage({ msg, onDelete, reactions, onReact, agents }: {
   msg: Message;
   onDelete: (id: string) => void;
   reactions: string[];
   onReact: (msgId: string, emoji: string) => void;
+  agents: ReturnType<typeof getAgentsForRoom>;
 }) {
   const [hov, setHov] = useState(false);
-  const a = getAgent(msg.persona!);
+  const a = getAgent(msg.persona!, agents);
   const isCritic   = msg.persona === "critic";
   const isWriter   = msg.persona === "writer";
   const isEditor   = msg.persona === "editor";
@@ -393,7 +394,7 @@ function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, o
 }) {
   if (msg.role === "user") return <UserMessage msg={msg} onDelete={onDelete} />;
   if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} reactions={reactions} onReact={onReact} onCallChain={onCallChain} agents={agents} />;
-  if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} reactions={reactions} onReact={onReact} />;
+  if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} reactions={reactions} onReact={onReact} agents={agents} />;
   return null;
 }
 
@@ -1497,7 +1498,7 @@ ${directorSynthesis}`,
 
               {/* Typing indicators */}
               {Object.keys(loading).map(pId => {
-                const a = getAgent(pId);
+                const a = getAgent(pId, AGENTS);
                 return (
                   <div key={`typing-${pId}`} className="msg-in" style={{ marginBottom:28, display:"flex", gap:8, alignItems:"flex-start" }}>
                     <div style={{ fontSize:15, color:a.color }}>{a.icon}</div>
