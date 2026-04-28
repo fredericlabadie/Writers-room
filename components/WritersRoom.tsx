@@ -628,7 +628,7 @@ function ClearConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel
 }
 
 // Mobile agent bottom sheet
-function AgentBottomSheet({ onMention, onClose }: { onMention: (id: string) => void; onClose: () => void }) {
+function AgentBottomSheet({ onMention, onClose, agents }: { onMention: (id: string) => void; onClose: () => void; agents: ReturnType<typeof getAgentsForRoom> }) {
   return (
     <div onClick={onClose} style={{
       position:"fixed", inset:0, background:"#000000aa", zIndex:300,
@@ -643,7 +643,7 @@ function AgentBottomSheet({ onMention, onClose }: { onMention: (id: string) => v
           CALL AN AGENT
         </div>
         <div style={{ display:"flex", padding:"0 14px", gap:8 }}>
-          {AGENTS.map(a => (
+          {agents.map(a => (
             <button key={a.id} onClick={() => { onMention(a.id); onClose(); }} style={{
               flex:1, background:a.color+"16", border:`1px solid ${a.color}44`,
               borderRadius:10, padding:"12px 0",
@@ -1970,7 +1970,7 @@ ${directorSynthesis}`,
         </FeatureModal>
       )}
 
-      {showSheet && <AgentBottomSheet onMention={insertMention} onClose={() => setShowSheet(false)} />}
+      {showSheet && <AgentBottomSheet onMention={insertMention} onClose={() => setShowSheet(false)} agents={AGENTS} />}
     </div>
   );
 }
