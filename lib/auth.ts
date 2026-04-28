@@ -2,13 +2,13 @@ import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
 import Google from "next-auth/providers/google";
 import { createSupabaseServiceClient } from "./supabase";
+import { getValidToken } from "./googleCalendar";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID!,
       clientSecret: process.env.AUTH_GOOGLE_SECRET!,
-      // Request calendar scope so @scheduler can create events
       authorization: {
         params: {
           scope: "openid email profile https://www.googleapis.com/auth/calendar.events",
@@ -24,23 +24,63 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user, account }) {
-      if (user) token.userId = user.id;
-      // Persist Google access token for calendar API calls
+      // Initial sign-in — persist tokens from provider
       if (account?.provider === "google") {
-        token.googleAccessToken = account.access_token;
+        token.googleAccessToken  = account.access_token;
         token.googleRefreshToken = account.refresh_token;
-        token.googleTokenExpiry = account.expires_at;
+        // account.expires_at is a Unix timestamp in seconds
+        token.googleTokenExpiry  = account.expires_at;
       }
+
+      if (user) token.userId = user.id;
+
+      // On every subsequent request, proactively refresh if the token
+      // is expired or within 60 seconds of expiry
+      if (
+        token.googleAccessToken &&
+        token.googleRefreshToken &&
+        token.googleTokenExpiry
+      ) {
+        const now = Math.floor(Date.now() / 1000);
+        const expiresAt = token.googleTokenExpiry as number;
+        const needsRefresh = now >= expiresAt - 60;
+
+        if (needsRefresh) {
+          try {
+            const refreshed = await getValidToken({
+              accessToken:  token.googleAccessToken as string,
+              refreshToken: token.googleRefreshToken as string,
+              expiresAt:    expiresAt,
+            });
+            if (refreshed.wasRefreshed) {
+              token.googleAccessToken = refreshed.accessToken;
+              token.googleTokenExpiry = refreshed.expiresAt;
+              if (refreshed.refreshToken) {
+                token.googleRefreshToken = refreshed.refreshToken;
+              }
+            }
+          } catch (err: any) {
+            // Refresh failed (revoked, etc.) — clear tokens so UI shows the re-auth prompt
+            console.error("Token refresh failed:", err.message);
+            token.googleAccessToken  = undefined;
+            token.googleRefreshToken = undefined;
+            token.googleTokenExpiry  = undefined;
+          }
+        }
+      }
+
       return token;
     },
+
     async session({ session, token }) {
       if (token.userId) session.user.id = token.userId as string;
-      // Expose whether the user has calendar access
       session.hasCalendarAccess = !!token.googleAccessToken;
-      // Pass access token to server actions that need it
-      (session as any).googleAccessToken = token.googleAccessToken;
+      (session as any).googleAccessToken  = token.googleAccessToken;
+      (session as any).googleRefreshToken = token.googleRefreshToken;
+      (session as any).googleTokenExpiry  = token.googleTokenExpiry;
       return session;
     },
+
     async signIn({ user }) {
       if (!user.email) return false;
       const supabase = createSupabaseServiceClient();

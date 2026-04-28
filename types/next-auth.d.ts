@@ -1,13 +1,22 @@
 import type { DefaultSession } from "next-auth";
 
 declare module "next-auth" {
-  /**
-   * Extends the built-in session.user type so TypeScript knows
-   * session.user.id exists throughout the app.
-   */
   interface Session {
     user: {
       id: string;
     } & DefaultSession["user"];
+    hasCalendarAccess: boolean;
+    googleAccessToken?: string;
+    googleRefreshToken?: string;
+    googleTokenExpiry?: number;
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    userId?: string;
+    googleAccessToken?: string;
+    googleRefreshToken?: string;
+    googleTokenExpiry?: number;
   }
 }
