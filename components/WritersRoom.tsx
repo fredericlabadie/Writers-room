@@ -433,7 +433,7 @@ function DirectionsPanel({ directions, onRemove }: { directions: string[]; onRem
 }
 
 // Floating draggable dock (desktop)
-function FloatingDock({ onMention, onChain, agentCtx }: { onMention: (id: AgentId) => void; onChain: (id: AgentId) => void; agentCtx: Record<string, string> }) {
+function FloatingDock({ onMention, onChain, agentCtx, agents }: { onMention: (id: AgentId) => void; onChain: (id: AgentId) => void; agentCtx: Record<string, string>; agents: ReturnType<typeof getAgentsForRoom> }) {
   const [pos, setPos]   = useState<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState(false);
   const [hov, setHov]   = useState<string | null>(null);
@@ -480,7 +480,7 @@ function FloatingDock({ onMention, onChain, agentCtx }: { onMention: (id: AgentI
       <div style={{ height:14, display:"flex", alignItems:"center", justifyContent:"center", cursor:"grab" }}>
         <div style={{ width:22, height:3, background:T.bdr2, borderRadius:99 }} />
       </div>
-      {AGENTS.map(a => (
+      {agents.map(a => (
         <div key={a.id} style={{ position:"relative" }}
           onMouseEnter={() => setHov(a.id)} onMouseLeave={() => setHov(null)}>
           {hov === a.id && (
@@ -1540,7 +1540,7 @@ ${directorSynthesis}`,
           )}
 
           {/* Floating dock */}
-          {!isMobile && <FloatingDock onMention={insertMention} onChain={insertChain} agentCtx={agentCtx} />}
+          {!isMobile && <FloatingDock onMention={insertMention} onChain={insertChain} agentCtx={agentCtx} agents={AGENTS} />}
 
           {/* Input bar */}
           <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:`linear-gradient(transparent, ${T.bg} 36%)`, padding:"28px 24px 20px" }}>
