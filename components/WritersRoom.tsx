@@ -23,7 +23,7 @@ const T = {
 
 type Screen = "empty" | "chat" | "roles";
 type Modal  = "command" | "clear" | "artifacts" | "tone" | "notebooklm" | "review" | null;
-type AgentId = "researcher" | "writer" | "editor" | "critic" | "director";
+type AgentId = string;
 
 // AGENTS is populated dynamically from room type — set after Props are known
 // Fallback to writers room agents for any static references
