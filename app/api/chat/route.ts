@@ -156,8 +156,9 @@ export async function POST(req: Request) {
     selectedArtifactIds?: string[];
     sectionId?: string | null;
     agentContext?: string | null;
-    chainContext?: string | null;      // previous agent's response (chain mode)
-    previousPersona?: PersonaId | null; // who wrote chainContext
+    chainContext?: string | null;
+    previousPersona?: PersonaId | null;
+    lengthMultiplier?: number;          // 0.4 parsimonious · 1.0 normal · 1.8 verbose
   };
   const { personaId, userMessage, roomId, history } = body;
 
@@ -243,9 +244,12 @@ export async function POST(req: Request) {
   const prompt = buildPrompt(promptUserMessage, history, persona.name, combinedContext, body.agentContext);
 
   try {
+    const rawMaxTokens = Math.round(persona.generation.maxTokens * (body.lengthMultiplier ?? 1.0));
+    const maxTokens = Math.max(100, Math.min(rawMaxTokens, 4096));
+
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-5",
-      max_tokens: persona.generation.maxTokens,
+      max_tokens: maxTokens,
       temperature: persona.generation.temperature,
       system: systemPrompt,
       messages: [{ role: "user", content: prompt }],

@@ -716,6 +716,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [generatingReview, setGeneratingReview] = useState(false);
   const [copied, setCopied] = useState(false);
   const [rateLimitError, setRateLimitError] = useState<string | null>(null);
+  const [responseLength, setResponseLength] = useState<"parsimonious" | "normal" | "verbose">("normal");
 
   const bottomRef   = useRef<HTMLDivElement>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
@@ -1093,6 +1094,7 @@ ${directorSynthesis}`,
             chainContext: previousResponse,
             previousPersona: previousPersonaId,
             agentContext: buildAgentContext(personaId),
+            lengthMultiplier: responseLength === "parsimonious" ? 0.4 : responseLength === "verbose" ? 1.8 : 1.0,
           }),
         });
 
@@ -1185,6 +1187,7 @@ ${directorSynthesis}`,
             chainContext,     // server uses this when present for the handoff prompt
             previousPersona: previousPersonaId,
             agentContext: buildAgentContext(personaId),
+            lengthMultiplier: responseLength === "parsimonious" ? 0.4 : responseLength === "verbose" ? 1.8 : 1.0,
           }),
         });
 
@@ -1553,6 +1556,43 @@ ${directorSynthesis}`,
               <button onClick={() => setRateLimitError(null)} style={{ background:"none", border:"none", color:"#ff3d3d", cursor:"pointer", fontSize:14 }}>×</button>
             </div>
           )}
+          {/* Token counter + length toggle */}
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+            {/* Estimated token count */}
+            {input.length > 0 && (() => {
+              const est = Math.ceil(input.length / 4);
+              const warn = est > 600;
+              return (
+                <span style={{ fontFamily:T.mono, fontSize:9, color: warn ? "#f97316" : "#333", letterSpacing:"0.06em" }}>
+                  ~{est} tokens
+                </span>
+              );
+            })()}
+            <div style={{ flex:1 }} />
+            {/* Response length toggle */}
+            {(["parsimonious", "normal", "verbose"] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setResponseLength(mode)}
+                title={{
+                  parsimonious: "Parsimonious — short, focused responses",
+                  normal:       "Normal — default response length",
+                  verbose:      "Verbose — longer, more thorough responses",
+                }[mode]}
+                style={{
+                  padding:"2px 8px", borderRadius:4,
+                  background: responseLength === mode ? T.surf2 : "none",
+                  border: `1px solid ${responseLength === mode ? T.bdr2 : "transparent"}`,
+                  color: responseLength === mode ? T.text : "#333",
+                  fontFamily:T.mono, fontSize:8.5, cursor:"pointer",
+                  letterSpacing:"0.04em", transition:"all 0.15s",
+                }}
+              >
+                {mode === "parsimonious" ? "⊟ terse" : mode === "normal" ? "⊡ normal" : "⊞ verbose"}
+              </button>
+            ))}
+          </div>
+
           <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
               <div style={{ flex:1, background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:10, display:"flex", alignItems:"flex-end", padding:"10px 14px", gap:8 }}>
                 <textarea
