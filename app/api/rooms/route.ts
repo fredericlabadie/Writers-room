@@ -25,7 +25,7 @@ export async function GET(req: Request) {
       .select(`
         role,
         rooms (
-          id, name, description, is_private, owner_id, invite_code, created_at,
+          id, name, description, is_private, room_type, owner_id, invite_code, created_at,
           room_members (count),
           messages ( created_at )
         )
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   const writeError = assertWriteAllowed(actor);
   if (writeError) return writeError;
 
-  const { name, description, is_private } = await req.json();
+  const { name, description, is_private, room_type } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
 
   const supabase = createSupabaseServiceClient();

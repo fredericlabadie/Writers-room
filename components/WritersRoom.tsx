@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { PERSONAS, PERSONA_LIST, parseMentions } from "@/lib/personas";
+import { PERSONAS, getAgentsForRoom, ROOM_TYPE_CONFIG, parseMentions } from "@/lib/personas";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { Message, Room, PersonaId, Artifact, SpotifyTone } from "@/types";
 import type { ReviewScope } from "@/lib/review-mode";
@@ -25,14 +25,11 @@ type Screen = "empty" | "chat" | "roles";
 type Modal  = "command" | "clear" | "artifacts" | "tone" | "notebooklm" | "review" | null;
 type AgentId = "researcher" | "writer" | "editor" | "critic" | "director";
 
-const AGENTS = [
-  { id:"researcher" as AgentId, icon:"◈", color:"#0fe898", label:"Researcher", role:"facts, sources, context",  tagline:"What do we know for certain?"  },
-  { id:"writer"     as AgentId, icon:"✦", color:"#4da8ff", label:"Writer",     role:"drafts, prose, narrative", tagline:"Let me try a version of this." },
-  { id:"editor"     as AgentId, icon:"⌘", color:"#ffca00", label:"Editor",     role:"structure, clarity, tone", tagline:"Here's how I'd tighten this."  },
-  { id:"critic"     as AgentId, icon:"⚡", color:"#ff3d3d", label:"Critic",     role:"pushback, gaps, risk",     tagline:"I see three problems here."    },
-  { id:"director"   as AgentId, icon:"◎", color:"#c030ff", label:"Director",   role:"synthesis, direction",     tagline:"Taking everything together…"   },
-];
-const getAgent = (id: string) => AGENTS.find(a => a.id === id)!;
+// AGENTS is populated dynamically from room type — set after Props are known
+// Fallback to writers room agents for any static references
+const DEFAULT_AGENTS = getAgentsForRoom("writers");
+const getAgent = (id: string, agents?: typeof DEFAULT_AGENTS) =>
+  (agents ?? DEFAULT_AGENTS).find(a => a.id === id) ?? DEFAULT_AGENTS[0];
 
 interface Props {
   room: Room;
@@ -606,6 +603,9 @@ function FeatureModal({ title, onClose, children }: { title: string; onClose: ()
 // ── Main component ───────────────────────────────────────────────────────────
 export default function WritersRoom({ room: initialRoom, currentUser, reviewScope }: Props) {
   const isReadOnly = reviewScope !== null && !reviewScope?.write;
+  const roomType = (initialRoom.room_type ?? "writers") as import("@/types").RoomType;
+  const AGENTS = getAgentsForRoom(roomType);
+  const roomConfig = ROOM_TYPE_CONFIG[roomType];
   const router = useRouter();
   const [screen, setScreen]   = useState<Screen>("empty");
   const [modal, setModal]     = useState<Modal>(null);
@@ -934,7 +934,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
       // We take only the first agent from each segment for the chain
       const chains: AgentId[] = [];
       for (const seg of segments) {
-        const re = /@(researcher|writer|editor|critic|director)/gi;
+        const handles = AGENTS.map(a => a.handle).join("|");
+        const re = new RegExp(`@(${handles})`, "gi");
         let m;
         while ((m = re.exec(seg)) !== null) {
           const id = m[1].toLowerCase() as AgentId;
@@ -944,7 +945,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
       return { mode: "chain", calls: chains.map(id => [id]) };
     }
     // Parallel mode — all mentions fire independently
-    const mentions = parseMentions(text);
+    const mentions = parseMentions(text, AGENTS) as AgentId[];
     return { mode: "parallel", calls: mentions.map(id => [id]) };
   };
 
@@ -1221,9 +1222,14 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
         ) : (
           <>
             <button onClick={() => router.push("/rooms")} style={{ background:"none", border:"none", color:T.sub, fontSize:18, cursor:"pointer" }}>←</button>
-            <span style={{ fontFamily:T.mono, fontSize:10, color:T.sub, letterSpacing:"0.14em", flex:1 }}>
-              {room.name.toUpperCase()}
-            </span>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flex:1 }}>
+              <span style={{ fontFamily:T.mono, fontSize:10, color:T.sub, letterSpacing:"0.14em" }}>
+                {room.name.toUpperCase()}
+              </span>
+              <span style={{ fontSize:8, color:roomConfig.color, fontFamily:T.mono, border:`1px solid ${roomConfig.color}44`, padding:"1px 6px", borderRadius:3 }}>
+                {roomConfig.icon} {roomConfig.label.toUpperCase()}
+              </span>
+            </div>
             {tone && (
               <div style={{ display:"flex", alignItems:"center", gap:5, padding:"2px 8px", background:"#1a0530", border:"1px solid #c030ff30", borderRadius:12 }}>
                 <span style={{ fontSize:10 }}>🎵</span>

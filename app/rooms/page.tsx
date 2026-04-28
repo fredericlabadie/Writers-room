@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import type { Room } from "@/types";
+import type { Room, RoomType } from "@/types";
+import { ROOM_TYPE_CONFIG } from "@/lib/personas";
 
 interface RoomEntry {
   role: "owner" | "member";
@@ -135,6 +136,15 @@ function RoomCard({
                   PRIVATE
                 </span>
               )}
+              {(() => {
+                const rt = (room as any).room_type as RoomType ?? "writers";
+                const cfg = ROOM_TYPE_CONFIG[rt];
+                return (
+                  <span style={{ fontSize: 9, color: cfg.color, fontFamily: mono, border: `1px solid ${cfg.color}40`, padding: "1px 6px", borderRadius: 3 }}>
+                    {cfg.icon} {cfg.label}
+                  </span>
+                );
+              })()}
               {isOwner && (
                 <span style={{ fontSize: 9, color: "#0fe89888", fontFamily: mono }}>owner</span>
               )}
@@ -223,7 +233,7 @@ export default function RoomsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
-  const [newRoom, setNewRoom] = useState({ name: "", description: "", is_private: false });
+  const [newRoom, setNewRoom] = useState<{ name: string; description: string; is_private: boolean; room_type: RoomType }>({ name: "", description: "", is_private: false, room_type: "writers" });
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -252,7 +262,7 @@ export default function RoomsPage() {
     const res = await fetch("/api/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newRoom),
+      body: JSON.stringify(newRoom), // includes room_type
     });
     if (res.ok) {
       const room = await res.json();
@@ -412,6 +422,31 @@ export default function RoomsPage() {
             <p style={{ fontSize: 10, color: sub, fontFamily: mono, letterSpacing: "0.1em" }}>NEW ROOM</p>
             <input placeholder="Room name" value={newRoom.name} onChange={e => setNewRoom(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
             <input placeholder="Description (optional)" value={newRoom.description} onChange={e => setNewRoom(p => ({ ...p, description: e.target.value }))} style={inputStyle} />
+            {/* Room type selector */}
+            <div>
+              <p style={{ fontSize: 10, color: sub, fontFamily: mono, letterSpacing: "0.1em", marginBottom: 8 }}>ROOM TYPE</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {(Object.entries(ROOM_TYPE_CONFIG) as [RoomType, typeof ROOM_TYPE_CONFIG[RoomType]][]).map(([type, cfg]) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setNewRoom(p => ({ ...p, room_type: type }))}
+                    style={{
+                      padding: "10px 12px", borderRadius: 6, textAlign: "left", cursor: "pointer",
+                      background: newRoom.room_type === type ? cfg.color + "18" : surf,
+                      border: `1px solid ${newRoom.room_type === type ? cfg.color + "66" : bdr2}`,
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <span style={{ color: cfg.color, fontSize: 14 }}>{cfg.icon}</span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: newRoom.room_type === type ? cfg.color : text }}>{cfg.label}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: sub, fontFamily: mono }}>{cfg.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: sub, cursor: "pointer" }}>
               <input type="checkbox" checked={newRoom.is_private} onChange={e => setNewRoom(p => ({ ...p, is_private: e.target.checked }))} />
               Private (invite-only)

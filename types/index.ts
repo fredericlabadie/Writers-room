@@ -1,4 +1,6 @@
-export type PersonaId = "researcher" | "writer" | "editor" | "critic" | "director";
+export type PersonaId = string; // now dynamic — any registered agent handle
+
+export type RoomType = "writers" | "jobhunt" | "career" | "publishing";
 
 export interface PersonaGenerationSettings {
   temperature: number;
@@ -38,6 +40,7 @@ export interface Room {
   description: string | null;
   owner_id: string;
   is_private: boolean;
+  room_type: RoomType;
   invite_code: string | null;
   notebooklm_url: string | null;
   active_tone: SpotifyTone | null;

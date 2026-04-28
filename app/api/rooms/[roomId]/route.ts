@@ -22,7 +22,7 @@ export async function GET(_req: Request, { params }: Params) {
 
   const { data, error } = await supabase
     .from("rooms")
-    .select("id, name, description, is_private, invite_code, notebooklm_url, active_tone, owner_id")
+    .select("id, name, description, is_private, room_type, invite_code, notebooklm_url, active_tone, owner_id")
     .eq("id", params.roomId)
     .single();
 
