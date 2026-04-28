@@ -433,7 +433,7 @@ function DirectionsPanel({ directions, onRemove }: { directions: string[]; onRem
 }
 
 // Floating draggable dock (desktop)
-function FloatingDock({ onMention, onChain, agentCtx, agents }: { onMention: (id: AgentId) => void; onChain: (id: AgentId) => void; agentCtx: Record<string, string>; agents: ReturnType<typeof getAgentsForRoom> }) {
+function FloatingDock({ onMention, onChain, agentCtx, agents }: { onMention: (id: string) => void; onChain: (id: string) => void; agentCtx: Record<string, string>; agents: ReturnType<typeof getAgentsForRoom> }) {
   const [pos, setPos]   = useState<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState(false);
   const [hov, setHov]   = useState<string | null>(null);
@@ -628,7 +628,7 @@ function ClearConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel
 }
 
 // Mobile agent bottom sheet
-function AgentBottomSheet({ onMention, onClose }: { onMention: (id: AgentId) => void; onClose: () => void }) {
+function AgentBottomSheet({ onMention, onClose }: { onMention: (id: string) => void; onClose: () => void }) {
   return (
     <div onClick={onClose} style={{
       position:"fixed", inset:0, background:"#000000aa", zIndex:300,
@@ -990,7 +990,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   };
 
   // Insert chain arrow → @agent into input
-  const insertChain = (id: AgentId) => {
+  const insertChain = (id: string) => {
     setInput(prev => {
       const trimmed = prev.trimEnd();
       // If input already ends with a mention, append →
@@ -1118,7 +1118,7 @@ ${directorSynthesis}`,
   };
 
   // Insert @mention into input
-  const insertMention = (id: AgentId) => {
+  const insertMention = (id: string) => {
     setInput(prev => prev + `@${id} `);
     inputRef.current?.focus();
   };
