@@ -267,7 +267,7 @@ export default function RoomsPage() {
     if (res.ok) {
       const room = await res.json();
       setShowCreate(false);
-      setNewRoom({ name: "", description: "", is_private: false });
+      setNewRoom({ name: "", description: "", is_private: false, room_type: "writers" });
       router.push(`/rooms/${room.id}`);
     }
   }
