@@ -717,6 +717,11 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [copied, setCopied] = useState(false);
   const [rateLimitError, setRateLimitError] = useState<string | null>(null);
   const [responseLength, setResponseLength] = useState<"parsimonious" | "normal" | "verbose">("normal");
+  const [pendingCalendarEvents, setPendingCalendarEvents] = useState<Array<{
+    title: string; date?: string; duration: string; notes?: string; msgId: string;
+  }>>([]);
+  const [creatingEvents, setCreatingEvents] = useState<Set<number>>(new Set());
+  const [createdEvents, setCreatedEvents] = useState<Set<number>>(new Set());
 
   const bottomRef   = useRef<HTMLDivElement>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
@@ -1114,8 +1119,9 @@ ${directorSynthesis}`,
           content: agentText, created_at: now(),
         };
         setMessages(prev => [...prev, agentMsg]);
+        if (personaId === "scheduler") parseScheduleBlocks(agentText, agentMsg.id);
         previousResponse = agentText;
-        previousPersonaId = personaId as AgentId;
+        previousPersonaId = personaId;
       } catch { /* skip */ }
       setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
     }
@@ -1209,6 +1215,7 @@ ${directorSynthesis}`,
           created_at: now(),
         };
         setMessages(prev => [...prev, agentMsg]);
+        if (personaId === "scheduler") parseScheduleBlocks(agentText, agentMsg.id);
         return agentText;
       } catch {
         return null;
@@ -1245,6 +1252,50 @@ ${directorSynthesis}`,
 
   // Delete a message from local state
   const deleteMsg = (id: string) => setMessages(prev => prev.filter(m => m.id !== id));
+
+  // Parse ```schedule JSON blocks from scheduler agent responses
+  const parseScheduleBlocks = (text: string, msgId: string) => {
+    const match = text.match(/```schedule\n([\s\S]*?)```/);
+    if (!match) return;
+    try {
+      const events = JSON.parse(match[1]);
+      if (!Array.isArray(events) || events.length === 0) return;
+      setPendingCalendarEvents(prev => [
+        ...prev.filter(e => e.msgId !== msgId), // deduplicate by message
+        ...events.map((e: any) => ({ ...e, msgId })),
+      ]);
+    } catch { /* malformed JSON — ignore */ }
+  };
+
+  // Create a single calendar event after user confirms
+  const createCalendarEvent = async (idx: number) => {
+    const event = pendingCalendarEvents[idx];
+    if (!event) return;
+    setCreatingEvents(prev => new Set(prev).add(idx));
+    try {
+      const res = await fetch("/api/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === "no_calendar_access" || data.error === "token_expired") {
+          setRateLimitError(data.message);
+        }
+        return;
+      }
+      // Mark as created — show link
+      setCreatedEvents(prev => new Set(prev).add(idx));
+    } finally {
+      setCreatingEvents(prev => { const n = new Set(prev); n.delete(idx); return n; });
+    }
+  };
+
+  const dismissCalendarEvent = (idx: number) => {
+    setPendingCalendarEvents(prev => prev.filter((_, i) => i !== idx));
+    setCreatedEvents(prev => { const n = new Set(prev); n.delete(idx); return n; });
+  };
 
   // Clear conversation
   const clearConversation = () => {
@@ -1476,6 +1527,69 @@ ${directorSynthesis}`,
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
           {/* Pinned directions */}
           <DirectionsPanel directions={directions} onRemove={removeDirection} />
+
+          {/* Calendar event confirmation panel */}
+          {pendingCalendarEvents.length > 0 && (
+            <div style={{
+              background:"#0d0d0d", borderBottom:"1px solid #1e1e1e",
+              padding:"12px 24px", flexShrink:0,
+            }}>
+              <div style={{ maxWidth:720, margin:"0 auto" }}>
+                <div style={{ fontFamily:T.mono, fontSize:8.5, color:"#a78bfa", letterSpacing:"0.16em", marginBottom:10 }}>
+                  ◷ SCHEDULE SUGGESTED
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                  {pendingCalendarEvents.map((ev, idx) => {
+                    const isCreating = creatingEvents.has(idx);
+                    const isDone = createdEvents.has(idx);
+                    return (
+                      <div key={idx} style={{
+                        display:"flex", alignItems:"flex-start", gap:12,
+                        padding:"10px 14px",
+                        background: isDone ? "#0fe89810" : "#a78bfa0a",
+                        border:`1px solid ${isDone ? "#0fe89840" : "#a78bfa30"}`,
+                        borderRadius:6,
+                      }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontFamily:T.sans, fontSize:13, color:T.text, marginBottom:2 }}>{ev.title}</div>
+                          <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>
+                            {ev.date ? new Date(ev.date).toLocaleString([], { dateStyle:"medium", timeStyle:"short" }) : "date TBD"}
+                            {" · "}{ev.duration}
+                          </div>
+                          {ev.notes && (
+                            <div style={{ fontFamily:T.sans, fontSize:11, color:T.sub, marginTop:3 }}>{ev.notes}</div>
+                          )}
+                        </div>
+                        <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
+                          {isDone ? (
+                            <span style={{ fontFamily:T.mono, fontSize:9, color:"#0fe898" }}>✓ added to calendar</span>
+                          ) : (
+                            <button
+                              onClick={() => createCalendarEvent(idx)}
+                              disabled={isCreating}
+                              style={{
+                                padding:"4px 12px", borderRadius:5,
+                                background: isCreating ? "#1e1040" : "#2d1a5e",
+                                border:"1px solid #a78bfa55",
+                                color:"#a78bfa", fontFamily:T.mono, fontSize:9,
+                                cursor: isCreating ? "wait" : "pointer",
+                              }}
+                            >
+                              {isCreating ? "adding…" : "+ add to calendar"}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => dismissCalendarEvent(idx)}
+                            style={{ background:"none", border:"none", color:T.meta, cursor:"pointer", fontSize:14, lineHeight:1 }}
+                          >×</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Messages */}
           <div
