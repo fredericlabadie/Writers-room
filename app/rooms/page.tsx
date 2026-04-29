@@ -466,7 +466,7 @@ function AllRoomsView({ rooms, onOpen, onRefresh, allRoomsTotal }: { rooms: Room
   const joinRoom = async () => {
     if (!inviteCode.trim()) return;
     const res = await fetch("/api/rooms/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invite_code: inviteCode }) });
-    if (res.ok) { const data = await res.json(); router.push(`/rooms/${data.room_id}`); }
+    if (res.ok) { const data = await res.json(); router.push(`/rooms/${data.room_id}?onboarding=1`); }
     else setError("Invalid invite code");
   };
 
@@ -492,7 +492,7 @@ function AllRoomsView({ rooms, onOpen, onRefresh, allRoomsTotal }: { rooms: Room
       )}
 
       {showCreate && (
-        <CreateRoomPanel onClose={() => setShowCreate(false)} onCreate={room => { setShowCreate(false); router.push(`/rooms/${room.id}`); }} />
+        <CreateRoomPanel onClose={() => setShowCreate(false)} onCreate={room => { setShowCreate(false); router.push(`/rooms/${room.id}?onboarding=1`); }} />
       )}
 
       {showJoin && (

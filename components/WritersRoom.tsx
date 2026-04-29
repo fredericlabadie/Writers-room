@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PERSONAS, getAgentsForRoom, ROOM_TYPE_CONFIG, parseMentions } from "@/lib/personas";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { Message, Room, PersonaId, Artifact, SpotifyTone } from "@/types";
@@ -942,6 +942,113 @@ function PresenceChips({ users }: { users: Array<{ userId: string; name: string;
   );
 }
 
+// ── Onboarding flow — 4-step first-run experience ────────────────────────────
+function OnboardingFlow({ step, room, roomConfig, agents, stageAbout, setStageAbout, stageReader, setStageReader, stageTone, setStageTone, onContinueCast, onSubmitStage, onFinish }: {
+  step: "cast" | "stage" | "generating" | "done";
+  room: any; roomConfig: any; agents: any[];
+  stageAbout: string; setStageAbout: (v: string) => void;
+  stageReader: string; setStageReader: (v: string) => void;
+  stageTone: string; setStageTone: (v: string) => void;
+  onContinueCast: () => void;
+  onSubmitStage: () => void;
+  onFinish: () => void;
+}) {
+  const dirColor = "#c89cff";
+  const inputSt: React.CSSProperties = {
+    width: "100%", background: "#0e0e11", border: "1px solid #23232a",
+    borderRadius: 5, padding: "10px 13px", resize: "none" as const,
+    fontFamily: "'DM Serif Display', serif", fontStyle: "italic",
+    fontSize: 14, color: "#e5e5ea", lineHeight: 1.65, outline: "none",
+  };
+
+  if (step === "cast") {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 24px" }}>
+        <div style={{ width: "100%", maxWidth: 440 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: dirColor, letterSpacing: "0.16em", marginBottom: 4 }}>01 · PICK A CAST</div>
+          <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#e5e5ea", marginBottom: 6, letterSpacing: "-0.01em" }}>Not a blank canvas.</h1>
+          <p style={{ fontSize: 13, color: "#8a8a92", marginBottom: 22 }}>A choice of company. Your room is set up with {roomConfig.label}.</p>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 20 }}>
+            {agents.filter((a: any) => a.id !== "director").map((a: any) => (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: a.color + "0c", border: `1px solid ${a.color}33`, borderLeft: `3px solid ${a.color}`, borderRadius: "0 5px 5px 0" }}>
+                <span style={{ color: a.color, fontSize: 16, width: 20, textAlign: "center" }}>{a.icon}</span>
+                <div>
+                  <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#e5e5ea", fontWeight: 500 }}>{a.name}</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: "#5a5a62", letterSpacing: "0.04em", marginTop: 2 }}>{a.tagline}</div>
+                </div>
+                <span style={{ marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: a.color }}>✓</span>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={onContinueCast} style={{ width: "100%", padding: "11px 16px", background: dirColor, color: "#0a0a0c", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", border: "none", borderRadius: 5, cursor: "pointer" }}>
+            SET THE STAGE →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "stage") {
+    const hasContent = stageAbout.trim().length > 0;
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 24px" }}>
+        <div style={{ width: "100%", maxWidth: 480 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: dirColor, letterSpacing: "0.16em", marginBottom: 4 }}>02 · SET THE STAGE</div>
+          <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#e5e5ea", marginBottom: 6, letterSpacing: "-0.01em" }}>Three sentences.</h1>
+          <p style={{ fontSize: 13, color: "#8a8a92", marginBottom: 24 }}>The Director briefs the rest.</p>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {[
+              { label: "ABOUT", hint: "What is this room for? Be specific.", val: stageAbout, set: setStageAbout, rows: 3, placeholder: "e.g. A literary novel set in Saint-Pierre, Martinique on the eve of the 1902 eruption. The wife who knows." },
+              { label: "READER / REFERENCES", hint: "Comp titles, target reader, or voice references.", val: stageReader, set: setStageReader, rows: 2, placeholder: "e.g. Readers of Hilary Mantel. Comp: Mengiste, Doerr." },
+              { label: "TONE", hint: "A few words.", val: stageTone, set: setStageTone, rows: 1, placeholder: "e.g. Restrained. Period-precise. Dread carried by objects." },
+            ].map(field => (
+              <div key={field.label}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 8.5, color: "#5a5a62", letterSpacing: "0.14em" }}>{field.label}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 8, color: "#3a3a42" }}>{field.hint}</span>
+                </div>
+                <textarea value={field.val} onChange={e => field.set(e.target.value)} placeholder={field.placeholder} rows={field.rows} style={inputSt} />
+              </div>
+            ))}
+          </div>
+
+          {/* Director aside */}
+          {hasContent && (
+            <div style={{ marginTop: 14, display: "flex", gap: 8, padding: "10px 13px", background: dirColor + "0d", border: `1px dashed ${dirColor}44`, borderRadius: 5 }}>
+              <span style={{ color: dirColor, fontSize: 12, marginTop: 1 }}>◎</span>
+              <div>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 8.5, color: dirColor, letterSpacing: "0.1em", marginBottom: 3 }}>@DIRECTOR · WHILE YOU TYPE</div>
+                <div style={{ fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontSize: 12, color: "#b8b8c0", lineHeight: 1.5 }}>"I'll brief the cast. You won't have to repeat any of this."</div>
+              </div>
+            </div>
+          )}
+
+          <button onClick={onSubmitStage} disabled={!hasContent} style={{ marginTop: 20, width: "100%", padding: "11px 16px", background: hasContent ? dirColor : "#1a1a20", color: hasContent ? "#0a0a0c" : "#3a3a42", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", border: `1px solid ${hasContent ? dirColor : "#23232a"}`, borderRadius: 5, cursor: hasContent ? "pointer" : "not-allowed", transition: "all 0.2s" }}>
+            BRIEF THE CAST →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "generating") {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+        <span style={{ color: dirColor, fontSize: 28 }}>◎</span>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: dirColor, letterSpacing: "0.14em" }}>BRIEFING THE CAST…</div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: dirColor, animation: "bounce 1.2s ease-in-out infinite", animationDelay: `${i * 0.2}s`, opacity: 0.7 }} />)}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // ── Return brief — "while you were away" panel shown at top of chat ──────────
 function ReturnBrief({ brief, onDismiss, onCatchUp }: {
   brief: { directorText: string; events: any[]; awayStr: string; onYouCount: number };
@@ -1576,7 +1683,15 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const AGENTS = getAgentsForRoom(roomType);
   const roomConfig = ROOM_TYPE_CONFIG[roomType];
   const router = useRouter();
-  const [screen, setScreen]   = useState<Screen>("empty");
+  const searchParams = useSearchParams();
+  const isNewRoom = searchParams?.get("onboarding") === "1";
+
+  // ── Onboarding ────────────────────────────────────────────────────────────
+  type OnboardStep = "cast" | "stage" | "generating" | "done";
+  const [onboardStep, setOnboardStep] = useState<OnboardStep | null>(isNewRoom ? "cast" : null);
+  const [stageAbout, setStageAbout] = useState(room.description ?? "");
+  const [stageReader, setStageReader] = useState("");
+  const [stageTone, setStageTone]   = useState("");
   const [viewMode, setViewMode] = useState<"chat" | "studio" | "dashboard">("chat");
   const [modal, setModal]     = useState<Modal>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -2415,6 +2530,35 @@ ${directorSynthesis}`,
   }, [input, loading, messages, room.id, currentUser, agentCtx, directions, agentInspirations, agentVoices]);
 
   // Delete a message from local state
+  // ── Onboarding: submit stage, generate intros, transition to chat ──────────
+  const submitStage = async () => {
+    setOnboardStep("generating");
+    try {
+      const res = await fetch(`/api/rooms/${room.id}/onboard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          about: stageAbout, reader: stageReader, tone: stageTone,
+          roomType, roomName: room.name,
+        }),
+      });
+      if (!res.ok) throw new Error("Generation failed");
+      const data = await res.json();
+      if (data.messages) {
+        const msgs = data.messages.map((m: any) => ({ ...m, user_name: undefined }));
+        msgs.forEach((m: Message) => seenIds.current.add(m.id));
+        setMessages(msgs);
+      }
+      // Remove onboarding param and switch to chat
+      router.replace(`/rooms/${room.id}`);
+      setOnboardStep(null);
+      setScreen("chat");
+    } catch {
+      injectDirectorMessage("Something went wrong setting up the room — try refreshing.", "error");
+      setOnboardStep("stage");
+    }
+  };
+
   const deleteMsg = (id: string) => setMessages(prev => prev.filter(m => m.id !== id));
   const dismissIntervention = (id: string) => setInterventions(prev => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
 
@@ -2820,7 +2964,23 @@ ${directorSynthesis}`,
       </div>
 
       {/* ── Screens ── */}
-      {screen === "empty" && (
+      {/* ── Onboarding flow ── */}
+      {onboardStep && onboardStep !== "done" && (
+        <OnboardingFlow
+          step={onboardStep}
+          room={room}
+          roomConfig={roomConfig}
+          agents={AGENTS}
+          stageAbout={stageAbout} setStageAbout={setStageAbout}
+          stageReader={stageReader} setStageReader={setStageReader}
+          stageTone={stageTone} setStageTone={setStageTone}
+          onContinueCast={() => setOnboardStep("stage")}
+          onSubmitStage={submitStage}
+          onFinish={() => { setOnboardStep(null); setScreen("chat"); }}
+        />
+      )}
+
+      {!onboardStep && screen === "empty" && (
         <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
           {/* Desktop cast list */}
           {!isMobile && (
