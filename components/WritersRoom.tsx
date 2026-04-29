@@ -605,7 +605,7 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
             background:"none", border:`1px solid ${T.bdr2}`, borderRadius:4,
             padding:"5px 14px", fontFamily:T.mono, fontSize:9, color:T.sub, cursor:"pointer",
           }}
-        >continue</button>
+        >continue</button>}
       </div>
       <ReactBadges active={reactions} />
       {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
