@@ -455,6 +455,8 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
   const [saved, setSaved]   = useState(false);
   const [calling, setCalling] = useState(false);
   const a = getAgent("director", agents);
+  const variant = (msg as any)._variant as "error" | "warning" | "info" | undefined;
+  const accentColor = variant === "error" ? "#ff5a5a" : variant === "warning" ? "#f5b041" : a.color;
 
   // Parse @mentions from the last "Next move:" line only
   const lines = msg.content.trimEnd().split("\n");
@@ -495,15 +497,15 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
       <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
         style={{
           margin:"8px -24px", padding:"10px 40px",
-          background:a.color+"0a",
-          borderTop:`1px solid ${a.color}28`, borderBottom:`1px solid ${a.color}18`,
+          background:accentColor+"0a",
+          borderTop:`1px solid ${accentColor}28`, borderBottom:`1px solid ${accentColor}18`,
           position:"relative", opacity:0.65,
         }}>
         <MinBtn collapsed={true} onClick={() => onToggleCollapse(msg.id)} rightOffset={6} />
         <div style={{ display:"flex", alignItems:"center", gap:10, paddingRight:32 }}>
-          <span style={{ fontSize:15, color:a.color }}>◎</span>
-          <span style={{ fontFamily:T.mono, fontSize:10, color:a.color }}>@director</span>
-          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:4 }}>SYNTHESIS</span>
+          <span style={{ fontSize:15, color:accentColor }}>◎</span>
+          <span style={{ fontFamily:T.mono, fontSize:10, color:accentColor }}>@director</span>
+          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:4 }}>{variant === "error" ? "ERROR" : variant === "warning" ? "NOTE" : "SYNTHESIS"}</span>
           <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>minimized</span>
         </div>
       </div>
@@ -514,18 +516,18 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         margin:"32px -24px", padding:"22px 40px",
-        background:a.color+"12",
-        borderTop:`1px solid ${a.color}44`, borderBottom:`1px solid ${a.color}28`,
+        background:accentColor+"0f",
+        borderTop:`1px solid ${accentColor}55`, borderBottom:`1px solid ${accentColor}28`,
         position:"relative",
       }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
       {hov && <CopyBtn text={msg.content} />}
       {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-        <span style={{ fontSize:18, color:a.color }}>◎</span>
-        <span style={{ fontFamily:T.mono, fontSize:10, color:a.color, letterSpacing:"0.06em" }}>@director</span>
-        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:6 }}>SYNTHESIS</span>
-        <div style={{ flex:1, height:1, background:a.color+"16", marginLeft:8 }} />
+        <span style={{ fontSize:18, color:accentColor }}>◎</span>
+        <span style={{ fontFamily:T.mono, fontSize:10, color:accentColor, letterSpacing:"0.06em" }}>@director</span>
+        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:6 }}>{variant === "error" ? "ERROR" : variant === "warning" ? "NOTE" : "SYNTHESIS"}</span>
+        <div style={{ flex:1, height:1, background:accentColor+"16", marginLeft:8 }} />
         {hov && <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>
           {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
         </span>}
@@ -582,7 +584,7 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
 
       {/* Action row */}
       <div style={{ display:"flex", gap:10, marginTop:14 }}>
-        <button
+        {!variant && <button
           onClick={handleSave}
           disabled={!canSave}
           title={!canSave ? "5 directions saved" : "Pin this synthesis"}
@@ -596,8 +598,8 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
             opacity: canSave ? 1 : 0.35,
             transition:"all 0.2s",
           }}
-        >{saved ? "saved ✓" : "save as direction →"}</button>
-        <button
+        >{saved ? "saved ✓" : "save as direction →"}</button>}
+        {!variant && <button
           onClick={() => onContinue(msg.content)}
           style={{
             background:"none", border:`1px solid ${T.bdr2}`, borderRadius:4,
@@ -1005,7 +1007,6 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [reviewLink, setReviewLink] = useState("");
   const [generatingReview, setGeneratingReview] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [rateLimitError, setRateLimitError] = useState<string | null>(null);
   const [responseLength, setResponseLength] = useState<"parsimonious" | "normal" | "verbose">("normal");
   const [pendingCalendarEvents, setPendingCalendarEvents] = useState<Array<{
     title: string; date?: string; duration: string; notes?: string; msgId: string;
@@ -1444,7 +1445,8 @@ ${directorSynthesis}`,
 
         if (agentRes.status === 429) {
           const err = await agentRes.json();
-          setRateLimitError(err.message ?? "Rate limit reached.");
+          const resetMsg = err.resetAt ? ` Resets at ${new Date(err.resetAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "";
+          injectDirectorMessage(`The cast is out of breath — 30 calls per hour and we're there.${resetMsg} Pick it back up when the window resets.`, "error");
           setLoading({});
           return;
         }
@@ -1461,7 +1463,9 @@ ${directorSynthesis}`,
         if (personaId === "scheduler") parseScheduleBlocks(agentText, agentMsg.id);
         previousResponse = agentText;
         previousPersonaId = personaId;
-      } catch { /* skip */ }
+      } catch {
+        injectDirectorMessage(`@${personaId} ran into trouble getting through. Try calling them again.`, "warning");
+      }
       setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
     }
   };
@@ -1477,7 +1481,6 @@ ${directorSynthesis}`,
     const text = input.trim();
     if (!text || Object.keys(loading).length > 0) return;
     setInput("");
-    setRateLimitError(null);
 
     // Save user message
     const res = await fetch("/api/messages", {
@@ -1538,7 +1541,8 @@ ${directorSynthesis}`,
 
         if (agentRes.status === 429) {
           const err = await agentRes.json();
-          setRateLimitError(err.message ?? "Rate limit reached. Try again next hour.");
+          const resetMsg = err.resetAt ? ` Resets at ${new Date(err.resetAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "";
+          injectDirectorMessage(`The cast is out of breath — 30 calls per hour and we're there.${resetMsg} Pick it back up when the window resets.`, "error");
           setLoading({});
           return null;
         }
@@ -1557,6 +1561,7 @@ ${directorSynthesis}`,
         if (personaId === "scheduler") parseScheduleBlocks(agentText, agentMsg.id);
         return agentText;
       } catch {
+        injectDirectorMessage(`@${personaId} ran into trouble getting through — a network hiccup or a timeout. Try calling them again.`, "warning");
         return null;
       } finally {
         setLoading(prev => { const n = { ...prev }; delete n[personaId]; return n; });
@@ -1592,6 +1597,20 @@ ${directorSynthesis}`,
   // Delete a message from local state
   const deleteMsg = (id: string) => setMessages(prev => prev.filter(m => m.id !== id));
 
+  // Inject an ephemeral Director message into the chat (not persisted to DB)
+  const injectDirectorMessage = useCallback((content: string, variant?: "error" | "warning" | "info") => {
+    const msg: Message = {
+      id: `director-sys-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      role: "agent",
+      persona: "director",
+      content,
+      created_at: new Date().toISOString(),
+      _variant: variant,
+    } as any;
+    setMessages(prev => [...prev, msg]);
+    setScreen("chat");
+  }, []);
+
   // Parse ```schedule JSON blocks from scheduler agent responses
   const parseScheduleBlocks = (text: string, msgId: string) => {
     const match = text.match(/```schedule\n([\s\S]*?)```/);
@@ -1620,7 +1639,7 @@ ${directorSynthesis}`,
       const data = await res.json();
       if (!res.ok) {
         if (data.error === "no_calendar_access" || data.error === "token_expired") {
-          setRateLimitError(data.message);
+          injectDirectorMessage(data.message ?? "Calendar access isn't connected. Sign in with Google to enable calendar events.", "warning");
         }
         return;
       }
@@ -1921,15 +1940,30 @@ ${directorSynthesis}`,
                   {roomConfig.label.toUpperCase()}
                 </span>
               </div>
-              <div style={{ fontFamily:T.sans, fontSize:isMobile?16:19, color:"#555", lineHeight:1.5, maxWidth:360 }}>
-                {{
-                  writers:    "Drop in an idea. Call an agent.",
-                  jobhunt:    "Describe the role or company you're working on.",
-                  career:     "Describe the situation you want to think through.",
-                  publishing: "Tell me about your work and where you are in the process.",
-                }[roomType] ?? "Drop in an idea. Call an agent."}
+              {/* Director empty-room suggestions */}
+              <div style={{ padding:"14px 16px", background:"#c89cff0f", border:"1px dashed #c89cff44", borderRadius:6, maxWidth:360, margin:"0 auto 18px", textAlign:"left" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
+                  <span style={{ color:"#c89cff", fontSize:11 }}>◎</span>
+                  <span style={{ fontFamily:T.mono, fontSize:8.5, color:"#c89cff", letterSpacing:"0.1em" }}>@DIRECTOR · TRY ONE</span>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                  {({
+                    writers:    ["Open with a scene you've been avoiding.", "Have @researcher set the context first.", "Drop in a fragment you've already written."],
+                    jobhunt:    ["Describe the role and company you're targeting.", "Have @intel research the team and comp.", "Paste in the job description to start."],
+                    career:     ["Describe the situation you want to think through.", "Have @analyst benchmark your current position.", "Tell me what the next move should be."],
+                    publishing: ["Tell me about your work and where you are.", "Have @reader assess the market for this.", "Draft a one-line pitch and we'll sharpen it."],
+                  } as Record<string, string[]>)[roomType]?.map((suggestion: string, i: number) => (
+                    <button key={i} onClick={() => { setInput(suggestion); inputRef.current?.focus(); }} style={{
+                      background: i === 0 ? "#c89cff18" : "none",
+                      border: `1px solid ${i === 0 ? "#c89cff55" : "#c89cff22"}`,
+                      borderRadius:4, padding:"6px 10px", cursor:"pointer",
+                      fontFamily:T.serif, fontSize:12.5, color: i === 0 ? T.text : T.body,
+                      textAlign:"left", lineHeight:1.4,
+                    }}>{suggestion}</button>
+                  ))}
+                </div>
               </div>
-              <div style={{ marginTop:10, fontFamily:T.mono, fontSize:9, color:"#333" }}>
+              <div style={{ fontFamily:T.mono, fontSize:9, color:"#333" }}>
                 type @ to call an agent · ⌘K for commands
               </div>
             </div>
@@ -2125,12 +2159,6 @@ ${directorSynthesis}`,
           {/* Input bar */}
           <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:`linear-gradient(transparent, ${T.bg} 36%)`, padding:"28px 24px 20px" }}>
             <div style={{ maxWidth:720, margin:"0 auto" }}>
-          {rateLimitError && (
-            <div style={{ marginBottom:10, padding:"8px 12px", background:"#ff5a5a18", border:"1px solid #ff5a5a44", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-              <span style={{ fontFamily:T.mono, fontSize:10, color:"#ff5a5a" }}>⚡ {rateLimitError}</span>
-              <button onClick={() => setRateLimitError(null)} style={{ background:"none", border:"none", color:"#ff5a5a", cursor:"pointer", fontSize:14 }}>×</button>
-            </div>
-          )}
           {/* Token counter + length toggle */}
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
             {/* Estimated token count */}
