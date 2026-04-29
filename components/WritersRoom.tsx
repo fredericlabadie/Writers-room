@@ -43,8 +43,32 @@ interface Props {
 
 // Delete button shown on message hover
 function DelBtn({ onClick }: { onClick: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  if (confirming) {
+    return (
+      <div style={{
+        position:"absolute", top:6, right:6, zIndex:10,
+        display:"flex", alignItems:"center", gap:4,
+        background:T.surf2, border:`1px solid ${T.bdr2}`,
+        borderRadius:4, padding:"3px 8px",
+        boxShadow:"0 4px 16px #000a",
+      }}>
+        <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta, marginRight:2 }}>delete?</span>
+        <button
+          onClick={() => setConfirming(false)}
+          style={{ background:"none", border:`1px solid ${T.bdr2}`, borderRadius:3,
+            cursor:"pointer", color:T.sub, padding:"1px 8px",
+            fontFamily:T.mono, fontSize:9, lineHeight:1.4 }}>no</button>
+        <button
+          onClick={() => { setConfirming(false); onClick(); }}
+          style={{ background:"#ff3d3d18", border:"1px solid #ff3d3d55", borderRadius:3,
+            cursor:"pointer", color:"#ff3d3d", padding:"1px 8px",
+            fontFamily:T.mono, fontSize:9, lineHeight:1.4 }}>yes</button>
+      </div>
+    );
+  }
   return (
-    <button onClick={onClick} style={{
+    <button onClick={() => setConfirming(true)} title="Delete message" style={{
       position:"absolute", top:6, right:6, zIndex:5,
       background:T.surf2, border:`1px solid ${T.bdr2}`,
       borderRadius:4, cursor:"pointer", color:T.sub,
@@ -71,6 +95,19 @@ function CopyBtn({ text }: { text: string }) {
       padding:"2px 7px", fontFamily:T.mono, fontSize:11, lineHeight:1.2,
       transition:"color 0.2s",
     }}>{copied ? "✓" : "⎘"}</button>
+  );
+}
+
+// Minimize / expand button — collapses message body to just the header
+function MinBtn({ collapsed, onClick, rightOffset = 62 }: { collapsed: boolean; onClick: () => void; rightOffset?: number }) {
+  return (
+    <button onClick={onClick} title={collapsed ? "Expand message" : "Minimize message"} style={{
+      position:"absolute", top:6, right:rightOffset, zIndex:5,
+      background:T.surf2, border:`1px solid ${T.bdr2}`,
+      borderRadius:4, cursor:"pointer", color:T.sub,
+      padding:"2px 7px", fontFamily:T.mono, fontSize:11, lineHeight:1.2,
+      transition:"color 0.15s",
+    }}>{collapsed ? "▸" : "▾"}</button>
   );
 }
 
@@ -139,13 +176,37 @@ function ReactBadges({ active }: { active: string[] }) {
 }
 
 // User message
-function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) => void }) {
+function UserMessage({ msg, onDelete, collapsed, onToggleCollapse }: {
+  msg: Message;
+  onDelete: (id: string) => void;
+  collapsed: boolean;
+  onToggleCollapse: (id: string) => void;
+}) {
   const [hov, setHov] = useState(false);
+  const preview = msg.content.slice(0, 72) + (msg.content.length > 72 ? "…" : "");
+
+  if (collapsed) {
+    return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{ display:"flex", justifyContent:"flex-end", marginBottom:8, position:"relative" }}>
+        <MinBtn collapsed={true} onClick={() => onToggleCollapse(msg.id)} rightOffset={6} />
+        <div style={{
+          maxWidth:"62%", background:T.surf, border:`1px solid ${T.bdr}`,
+          borderRadius:8, padding:"6px 38px 6px 12px",
+          display:"flex", alignItems:"center", gap:8, opacity:0.6,
+        }}>
+          <span style={{ fontFamily:T.sans, fontSize:12, color:"#686868" }}>{preview}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ display:"flex", justifyContent:"flex-end", marginBottom:24, position:"relative" }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
       {hov && <CopyBtn text={msg.content} />}
+      {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
       <div style={{
         maxWidth:"62%", background:T.surf, border:`1px solid ${T.bdr}`,
         borderRadius:8, padding:"10px 14px",
@@ -164,12 +225,14 @@ function UserMessage({ msg, onDelete }: { msg: Message; onDelete: (id: string) =
 }
 
 // Agent message — unique treatment per role
-function AgentMessage({ msg, onDelete, reactions, onReact, agents }: {
+function AgentMessage({ msg, onDelete, reactions, onReact, agents, collapsed, onToggleCollapse }: {
   msg: Message;
   onDelete: (id: string) => void;
   reactions: string[];
   onReact: (msgId: string, emoji: string) => void;
   agents: ReturnType<typeof getAgentsForRoom>;
+  collapsed: boolean;
+  onToggleCollapse: (id: string) => void;
 }) {
   const [hov, setHov] = useState(false);
   const a = getAgent(msg.persona!, agents);
@@ -188,6 +251,28 @@ function AgentMessage({ msg, onDelete, reactions, onReact, agents }: {
 
   const bg = isCritic ? a.color+"14" : isEditor ? a.color+"0d" : isResearch ? a.color+"0b" : a.color+"0a";
 
+  if (collapsed) {
+    return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{
+          marginBottom:8, position:"relative",
+          marginLeft: isCritic ? 56 : 0,
+          background:bg, padding:"8px 14px",
+          ...borders, opacity:0.65,
+        }}>
+        <MinBtn collapsed={true} onClick={() => onToggleCollapse(msg.id)} rightOffset={6} />
+        <div style={{ display:"flex", alignItems:"center", gap:8, paddingRight:32 }}>
+          <span style={{ fontSize:13, color:a.color }}>{a.icon}</span>
+          <span style={{ fontFamily:T.mono, fontSize:9, color:a.color }}>@{a.id}</span>
+          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>
+            {isResearch?"RESEARCH":isWriter?"DRAFT":isEditor?"EDIT":isCritic?"CHALLENGE":""}
+          </span>
+          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>minimized</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
@@ -198,14 +283,15 @@ function AgentMessage({ msg, onDelete, reactions, onReact, agents }: {
       }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
       {hov && <CopyBtn text={msg.content} />}
+      {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
         <span style={{ fontSize:15, color:a.color }}>{a.icon}</span>
         <span style={{ fontFamily:T.mono, fontSize:9.5, color:a.color, letterSpacing:"0.04em" }}>@{a.id}</span>
         <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:4 }}>
           {isResearch?"RESEARCH":isWriter?"DRAFT":isEditor?"EDIT":isCritic?"CHALLENGE":""}
         </span>
-        {isCritic && <span style={{ fontFamily:T.mono, fontSize:8, color:"#ff3d3d88", marginLeft:"auto", paddingRight:28 }}>dissent</span>}
-        {hov && <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>
+        {isCritic && <span style={{ fontFamily:T.mono, fontSize:8, color:"#ff3d3d88", marginLeft:"auto", paddingRight:56 }}>dissent</span>}
+        {hov && <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto", paddingRight:56 }}>
           {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
         </span>}
       </div>
@@ -231,7 +317,7 @@ function AgentMessage({ msg, onDelete, reactions, onReact, agents }: {
 }
 
 // Director — full-bleed synthesis treatment
-function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact, onCallChain, agents }: {
+function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact, onCallChain, agents, collapsed, onToggleCollapse }: {
   msg: Message;
   onDelete: (id: string) => void;
   onSave: (text: string) => void;
@@ -241,6 +327,8 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
   onReact: (msgId: string, emoji: string) => void;
   onCallChain: (agentIds: string[], directorSynthesis: string) => void;
   agents: ReturnType<typeof getAgentsForRoom>;
+  collapsed: boolean;
+  onToggleCollapse: (id: string) => void;
 }) {
   const [hov, setHov]     = useState(false);
   const [saved, setSaved]   = useState(false);
@@ -281,6 +369,26 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
     setCalling(false);
   };
 
+  if (collapsed) {
+    return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{
+          margin:"8px -24px", padding:"10px 40px",
+          background:a.color+"0a",
+          borderTop:`1px solid ${a.color}28`, borderBottom:`1px solid ${a.color}18`,
+          position:"relative", opacity:0.65,
+        }}>
+        <MinBtn collapsed={true} onClick={() => onToggleCollapse(msg.id)} rightOffset={6} />
+        <div style={{ display:"flex", alignItems:"center", gap:10, paddingRight:32 }}>
+          <span style={{ fontSize:15, color:a.color }}>◎</span>
+          <span style={{ fontFamily:T.mono, fontSize:10, color:a.color }}>@director</span>
+          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:4 }}>SYNTHESIS</span>
+          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>minimized</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
@@ -291,6 +399,7 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
       }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
       {hov && <CopyBtn text={msg.content} />}
+      {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
         <span style={{ fontSize:18, color:a.color }}>◎</span>
         <span style={{ fontFamily:T.mono, fontSize:10, color:a.color, letterSpacing:"0.06em" }}>@director</span>
@@ -382,7 +491,7 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
 }
 
 // Message router
-function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact, onCallChain, agents }: {
+function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact, onCallChain, agents, collapsed, onToggleCollapse }: {
   msg: Message;
   onDelete: (id: string) => void;
   onSave: (text: string) => void;
@@ -392,10 +501,12 @@ function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, o
   onReact: (msgId: string, emoji: string) => void;
   onCallChain: (agentIds: string[], directorSynthesis: string) => void;
   agents: ReturnType<typeof getAgentsForRoom>;
+  collapsed: boolean;
+  onToggleCollapse: (id: string) => void;
 }) {
-  if (msg.role === "user") return <UserMessage msg={msg} onDelete={onDelete} />;
-  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} reactions={reactions} onReact={onReact} onCallChain={onCallChain} agents={agents} />;
-  if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} reactions={reactions} onReact={onReact} agents={agents} />;
+  if (msg.role === "user") return <UserMessage msg={msg} onDelete={onDelete} collapsed={collapsed} onToggleCollapse={onToggleCollapse} />;
+  if (msg.persona === "director") return <DirectorMessage msg={msg} onDelete={onDelete} onSave={onSave} onContinue={onContinue} canSave={canSave} reactions={reactions} onReact={onReact} onCallChain={onCallChain} agents={agents} collapsed={collapsed} onToggleCollapse={onToggleCollapse} />;
+  if (msg.persona) return <AgentMessage msg={msg} onDelete={onDelete} reactions={reactions} onReact={onReact} agents={agents} collapsed={collapsed} onToggleCollapse={onToggleCollapse} />;
   return null;
 }
 
@@ -782,6 +893,16 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [notes, setNotes] = useState<string>(initialRoom.notes ?? "");
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesSaving, setNotesSaving] = useState<"idle"|"saving"|"saved">("idle");
+
+  // Collapsed messages
+  const [collapsedMsgs, setCollapsedMsgs] = useState<Set<string>>(new Set());
+  const toggleCollapse = (id: string) => {
+    setCollapsedMsgs(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const bottomRef   = useRef<HTMLDivElement>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
@@ -1804,7 +1925,7 @@ ${directorSynthesis}`,
               )}
               {messages.map(msg => (
                 <div key={msg.id} className="msg-in">
-                  <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} reactions={messageReactions[msg.id] ?? []} onReact={toggleReaction} onCallChain={callDirectorChain} agents={AGENTS} />
+                  <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} reactions={messageReactions[msg.id] ?? []} onReact={toggleReaction} onCallChain={callDirectorChain} agents={AGENTS} collapsed={collapsedMsgs.has(msg.id)} onToggleCollapse={toggleCollapse} />
                 </div>
               ))}
 
