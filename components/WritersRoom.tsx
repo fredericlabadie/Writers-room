@@ -1799,14 +1799,10 @@ ${directorSynthesis}`,
               </div>
               <div style={{ fontFamily:T.sans, fontSize:isMobile?16:19, color:"#555", lineHeight:1.5, maxWidth:360 }}>
                 {{
-                  writers:    "Drop in an idea.
-Call an agent.",
-                  jobhunt:    "Describe the role or company
-you're working on.",
-                  career:     "Describe the situation
-you want to think through.",
-                  publishing: "Tell me about your work
-and where you are in the process.",
+                  writers:    "Drop in an idea. Call an agent.",
+                  jobhunt:    "Describe the role or company you're working on.",
+                  career:     "Describe the situation you want to think through.",
+                  publishing: "Tell me about your work and where you are in the process.",
                 }[roomType] ?? "Drop in an idea. Call an agent."}
               </div>
               <div style={{ marginTop:10, fontFamily:T.mono, fontSize:9, color:"#333" }}>
