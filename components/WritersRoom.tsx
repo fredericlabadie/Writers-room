@@ -1689,7 +1689,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   // ── Onboarding ────────────────────────────────────────────────────────────
   type OnboardStep = "cast" | "stage" | "generating" | "done";
   const [onboardStep, setOnboardStep] = useState<OnboardStep | null>(isNewRoom ? "cast" : null);
-  const [stageAbout, setStageAbout] = useState(room.description ?? "");
+  const [stageAbout, setStageAbout] = useState(initialRoom.description ?? "");
   const [stageReader, setStageReader] = useState("");
   const [stageTone, setStageTone]   = useState("");
   const [viewMode, setViewMode] = useState<"chat" | "studio" | "dashboard">("chat");
