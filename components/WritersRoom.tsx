@@ -1684,6 +1684,10 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     fetch(`/api/messages?roomId=${room.id}`)
       .then(r => r.json())
       .then(data => {
+        // ── Last-seen tracking (always, even if no messages) ────────────────
+        const lsKey = `wr-last-seen-${room.id}`;
+        const loadTime = Date.now();
+
         if (Array.isArray(data) && data.length > 0) {
           const msgs = data.map((m: any) => ({
             ...m,
@@ -1697,9 +1701,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
 
           // ── Async return brief ──────────────────────────────────────────
           // Show a "while you were away" brief if returning after 2+ hours
-          const lsKey = `wr-last-seen-${room.id}`;
           const lastSeenRaw = localStorage.getItem(lsKey);
-          const loadTime = Date.now();
           const TWO_HOURS = 2 * 60 * 60 * 1000;
 
           if (lastSeenRaw) {
