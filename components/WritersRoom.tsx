@@ -613,6 +613,292 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
   );
 }
 
+// ── Director Studio view ─────────────────────────────────────────────────────
+// Synthesis-first: latest Director message as hero + per-agent contribution columns
+
+const AGENT_COLORS_STATIC: Record<string,string> = {
+  researcher:"#0fe898", intel:"#0fe898", analyst:"#0fe898", reader:"#0fe898",
+  writer:"#4da8ff", drafter:"#4da8ff", editor:"#ffca00", critic:"#ff5a5a", director:"#c89cff",
+};
+const AGENT_ICONS_STATIC: Record<string,string> = {
+  researcher:"◈", intel:"◐", analyst:"◑", reader:"◫",
+  writer:"✦", drafter:"◧", editor:"⌘", critic:"⚡", director:"◎",
+};
+const CONTRIB_LABEL: Record<string,string> = {
+  writer:"DRAFT", drafter:"DRAFT", researcher:"CLAIM", intel:"INTEL",
+  analyst:"ANALYSIS", reader:"ASSESSMENT", editor:"REVISION", critic:"OBJECTION",
+  director:"SYNTHESIS",
+};
+
+function StudioView({ messages, agents, directions, onInsertMention, onBack }: {
+  messages: any[];
+  agents: any[];
+  directions: string[];
+  onInsertMention: (id: string) => void;
+  onBack: () => void;
+}) {
+  const dirColor = "#c89cff";
+  const dirMsgs = messages.filter(m => m.persona === "director" && m.role === "agent");
+  const latestDir = dirMsgs[dirMsgs.length - 1];
+
+  // Per-agent: last 3 messages from each agent
+  const agentContribs: Record<string, any[]> = {};
+  for (const a of agents) {
+    agentContribs[a.id] = messages
+      .filter(m => m.persona === a.id && m.role === "agent")
+      .slice(-3)
+      .map(m => ({
+        label: CONTRIB_LABEL[a.id] ?? "RESPONSE",
+        text: m.content.replace(/\n+/g, " ").slice(0, 120) + (m.content.length > 120 ? "…" : ""),
+      }));
+  }
+
+  // Parse next move from latest Director message
+  const nextMoveHandles: string[] = [];
+  if (latestDir) {
+    const lastLine = latestDir.content.trimEnd().split("\n").pop() ?? "";
+    if (/next move:/i.test(lastLine)) {
+      const handles = agents.map((a:any) => a.handle);
+      const re = new RegExp(`@(${handles.join("|")})`, "gi");
+      let m; while ((m = re.exec(lastLine)) !== null) {
+        const h = m[1].toLowerCase();
+        if (!nextMoveHandles.includes(h)) nextMoveHandles.push(h);
+      }
+    }
+  }
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {/* Director synthesis hero */}
+      <div style={{ padding:"24px 32px 20px", background:`linear-gradient(180deg, ${dirColor}0d, transparent 70%)`, borderBottom:`1px solid ${dirColor}33`, flexShrink:0 }}>
+        {latestDir ? (
+          <>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <span style={{ color:dirColor, fontSize:18 }}>◎</span>
+              <span style={{ fontFamily:T.mono, fontSize:10, color:dirColor, letterSpacing:"0.08em" }}>@director · LATEST SYNTHESIS</span>
+              <div style={{ flex:1, height:1, background:dirColor+"22" }} />
+              <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>{new Date(latestDir.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}</span>
+            </div>
+            <div style={{ fontFamily:T.serif, fontSize:22, lineHeight:1.5, color:T.text, maxWidth:800, marginBottom:16, letterSpacing:"-0.005em" }}>
+              {latestDir.content.split("\n\n")[0]}
+            </div>
+            {nextMoveHandles.length > 0 && (
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontFamily:T.mono, fontSize:9, color:dirColor, letterSpacing:"0.1em" }}>NEXT MOVE</span>
+                <div style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 12px", background:dirColor+"18", border:`1px solid ${dirColor}55`, borderRadius:6 }}>
+                  {nextMoveHandles.map((h, i) => {
+                    const ag = agents.find((a:any) => a.handle === h);
+                    return (
+                      <span key={h} style={{ display:"flex", alignItems:"center", gap:4 }}>
+                        {i > 0 && <span style={{ color:dirColor+"66", fontFamily:T.mono, fontSize:9 }}>→</span>}
+                        <span style={{ color:ag?.color ?? T.sub, fontSize:12 }}>{ag?.icon ?? "◉"}</span>
+                        <span style={{ fontFamily:T.mono, fontSize:9, color:ag?.color ?? T.sub }}>@{h}</span>
+                      </span>
+                    );
+                  })}
+                  <span style={{ fontFamily:T.mono, fontSize:8, color:dirColor+"66", marginLeft:6, letterSpacing:"0.1em" }}>↑ FIRE CHAIN</span>
+                </div>
+                <button onClick={onBack} style={{ fontFamily:T.mono, fontSize:9, color:T.sub, background:"none", border:`1px solid ${T.bdr2}`, borderRadius:4, padding:"5px 10px", cursor:"pointer" }}>back to chat to fire</button>
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ fontFamily:T.mono, fontSize:10, color:T.meta, letterSpacing:"0.1em" }}>
+            NO DIRECTOR SYNTHESIS YET — CALL @DIRECTOR TO GET ONE
+          </div>
+        )}
+      </div>
+
+      {/* Per-agent contribution columns */}
+      <div style={{ flex:1, display:"grid", gridTemplateColumns:`repeat(${agents.length}, 1fr)`, gap:1, background:T.bdr, overflow:"hidden" }}>
+        {agents.map((a:any) => {
+          const contribs = agentContribs[a.id] ?? [];
+          const color = a.color ?? AGENT_COLORS_STATIC[a.id] ?? T.sub;
+          return (
+            <div key={a.id} style={{ background:T.bg, padding:"14px 12px", display:"flex", flexDirection:"column", gap:8, overflowY:"auto" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:7, paddingBottom:8, borderBottom:`1px solid ${color}22`, flexShrink:0 }}>
+                <span style={{ color, fontSize:14 }}>{a.icon}</span>
+                <span style={{ fontFamily:T.mono, fontSize:10, color, letterSpacing:"0.04em" }}>@{a.id}</span>
+                <div style={{ flex:1 }} />
+                <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>{contribs.length}</span>
+              </div>
+              {contribs.length === 0 && (
+                <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta, textAlign:"center", marginTop:8 }}>no turns yet</div>
+              )}
+              {contribs.map((c, i) => (
+                <div key={i} style={{ background:color+"08", borderLeft:`2px solid ${color}`, padding:"8px 9px", borderRadius:"0 4px 4px 0", flexShrink:0 }}>
+                  <div style={{ fontFamily:T.mono, fontSize:8.5, color, letterSpacing:"0.1em", marginBottom:3 }}>{c.label}</div>
+                  <div style={{ fontSize:11.5, color:T.body, lineHeight:1.55, fontFamily: a.id === "writer" || a.id === "drafter" ? T.italic : T.sans, fontStyle: a.id === "writer" || a.id === "drafter" ? "italic" : "normal" }}>{c.text}</div>
+                </div>
+              ))}
+              <div style={{ flex:1 }} />
+              <button onClick={() => { onInsertMention(a.id); onBack(); }} style={{ fontFamily:T.mono, fontSize:8.5, color:color+"aa", background:"transparent", border:`1px solid ${color}33`, borderRadius:4, padding:"5px 8px", textAlign:"center", cursor:"pointer", flexShrink:0 }}>+ call again</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Room Dashboard view ───────────────────────────────────────────────────────
+// Derived insights: stats, voice contribution bars, canon/directions, open threads, artifacts
+
+function DashboardView({ messages, directions, artifacts, room, roomConfig }: {
+  messages: any[];
+  directions: string[];
+  artifacts: any[];
+  room: any;
+  roomConfig: any;
+}) {
+  // Derived stats
+  const agentMsgs = messages.filter(m => m.role === "agent");
+  const writerMsgs = agentMsgs.filter(m => m.persona === "writer" || m.persona === "drafter");
+  const wordCount = writerMsgs.reduce((sum, m) => sum + m.content.split(/\s+/).filter(Boolean).length, 0);
+  const criticFlags = agentMsgs.filter(m => m.persona === "critic").length;
+
+  // Voice contribution %
+  const agentCounts: Record<string,number> = {};
+  for (const m of agentMsgs) { agentCounts[m.persona ?? ""] = (agentCounts[m.persona ?? ""] ?? 0) + 1; }
+  const totalAgentMsgs = agentMsgs.length || 1;
+
+  // Canon cards = directions + top writer/researcher messages
+  const canonCards = [
+    ...directions.map(d => ({ agent: "director", kind: "DIRECTION", title: d.slice(0, 40), body: d })),
+    ...writerMsgs.slice(-2).map(m => ({ agent: "writer", kind: "DRAFT", title: "Latest draft", body: m.content.slice(0, 200) })),
+    ...agentMsgs.filter(m => m.persona === "researcher" || m.persona === "intel").slice(-1).map(m => ({ agent: m.persona, kind: "RESEARCH", title: "Research note", body: m.content.slice(0, 200) })),
+    ...agentMsgs.filter(m => m.persona === "critic").slice(-2).map(m => ({ agent: "critic", kind: "CHALLENGE", title: "Open problem", body: m.content.slice(0, 200) })),
+  ].slice(0, 6);
+
+  const PERSONA_COLORS: Record<string,string> = AGENT_COLORS_STATIC;
+  const PERSONA_ICONS: Record<string,string> = AGENT_ICONS_STATIC;
+
+  return (
+    <div style={{ flex:1, overflowY:"auto", padding:"28px 32px 48px" }}>
+      {/* Room header */}
+      <div style={{ display:"flex", alignItems:"baseline", gap:12, marginBottom:4 }}>
+        <span style={{ color:roomConfig.color, fontSize:16 }}>{roomConfig.icon}</span>
+        <span style={{ fontFamily:T.serif, fontSize:28, letterSpacing:"-0.02em" }}>{room.name}</span>
+        <span style={{ fontFamily:T.mono, fontSize:9, color:roomConfig.color, border:`1px solid ${roomConfig.color}44`, padding:"2px 7px", borderRadius:3, letterSpacing:"0.1em" }}>{roomConfig.label.toUpperCase()}</span>
+      </div>
+      {room.description && <p style={{ fontSize:13, color:T.sub, marginBottom:20 }}>{room.description}</p>}
+
+      {/* Stat strip */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:1, background:T.bdr, border:`1px solid ${T.bdr}`, borderRadius:8, overflow:"hidden", marginBottom:28 }}>
+        {[
+          ["WORDS DRAFTED", wordCount > 0 ? wordCount.toLocaleString() : "—", "by @writer"],
+          ["DIRECTIONS", String(directions.length), "pinned syntheses"],
+          ["TURNS", String(messages.filter(m => m.role === "user").length), "from you"],
+          ["CRITIC FLAGS", String(criticFlags), `${Math.max(0, criticFlags)} challenges`],
+          ["ARTIFACTS", String(artifacts.length), "uploaded files"],
+        ].map(([k,v,d]) => (
+          <div key={k} style={{ background:T.bg2, padding:"16px 18px" }}>
+            <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.meta, letterSpacing:"0.12em" }}>{k}</div>
+            <div style={{ fontFamily:T.serif, fontSize:28, color:T.text, marginTop:4, lineHeight:1, letterSpacing:"-0.02em" }}>{v}</div>
+            <div style={{ fontSize:11, color:T.sub, marginTop:3 }}>{d}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:28 }}>
+        {/* Left: canon / directions */}
+        <div>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+            <span style={{ fontFamily:T.serif, fontSize:16 }}>Canon</span>
+            <span style={{ fontFamily:T.mono, fontSize:8.5, color:T.meta, letterSpacing:"0.1em" }}>FROM CHAT</span>
+            <div style={{ flex:1, height:1, background:T.bdr }} />
+            <span style={{ fontFamily:T.mono, fontSize:9, color:T.faint }}>{canonCards.length} cards</span>
+          </div>
+          {canonCards.length === 0 && (
+            <div style={{ fontFamily:T.mono, fontSize:10, color:T.meta, padding:"20px 0" }}>No canon yet — save director syntheses as directions or pin responses.</div>
+          )}
+          {canonCards.map((c, i) => {
+            const color = PERSONA_COLORS[c.agent] ?? T.sub;
+            const icon = PERSONA_ICONS[c.agent] ?? "◉";
+            const isWriter = c.agent === "writer" || c.agent === "drafter";
+            return (
+              <div key={i} style={{ display:"grid", gridTemplateColumns:"18px 1fr", gap:14, padding:"14px 16px", background:T.bg2, border:`1px solid ${T.bdr}`, borderLeft:`3px solid ${color}`, borderRadius:"0 6px 6px 0", marginBottom:6 }}>
+                <span style={{ color, fontSize:14, marginTop:2 }}>{icon}</span>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
+                    <span style={{ fontFamily:T.mono, fontSize:8.5, color, letterSpacing:"0.1em", border:`1px solid ${color}44`, padding:"1px 6px", borderRadius:3 }}>{c.kind}</span>
+                    <span style={{ fontFamily:T.serif, fontSize:14, color:T.text }}>{c.title}</span>
+                  </div>
+                  <div style={{ fontFamily:isWriter ? T.italic : T.sans, fontStyle:isWriter ? "italic" : "normal", fontSize:12.5, lineHeight:1.65, color:T.body }}>{c.body}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Right: voice bars + open threads + artifacts */}
+        <div>
+          {/* Voice contributions */}
+          <div style={{ marginBottom:22 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+              <span style={{ fontFamily:T.serif, fontSize:14 }}>Voice contributions</span>
+              <div style={{ flex:1, height:1, background:T.bdr }} />
+            </div>
+            {agentMsgs.length === 0 && <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>No agent turns yet.</div>}
+            {Object.entries(agentCounts).sort(([,a],[,b]) => b-a).slice(0,6).map(([persona, count]) => {
+              const pct = Math.round((count / totalAgentMsgs) * 100);
+              const color = PERSONA_COLORS[persona] ?? T.sub;
+              const icon = PERSONA_ICONS[persona] ?? "◉";
+              return (
+                <div key={persona} style={{ display:"grid", gridTemplateColumns:"18px 1fr 32px", gap:8, alignItems:"center", padding:"5px 0" }}>
+                  <span style={{ color, fontSize:11 }}>{icon}</span>
+                  <div style={{ position:"relative", height:5, background:T.surf, borderRadius:99, overflow:"hidden" }}>
+                    <div style={{ position:"absolute", inset:0, width:`${pct*1.5}%`, background:color, opacity:0.7 }} />
+                  </div>
+                  <span style={{ fontFamily:T.mono, fontSize:9, color:T.sub, textAlign:"right" }}>{pct}%</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Open threads — recent critic messages */}
+          {criticFlags > 0 && (
+            <div style={{ marginBottom:22 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                <span style={{ fontFamily:T.serif, fontSize:14 }}>Open threads</span>
+                <div style={{ flex:1, height:1, background:T.bdr }} />
+                <span style={{ fontFamily:T.mono, fontSize:9, color:"#ff5a5a" }}>{Math.min(criticFlags, 3)}</span>
+              </div>
+              {agentMsgs.filter(m => m.persona === "critic").slice(-3).map((m, i) => (
+                <div key={i} style={{ display:"grid", gridTemplateColumns:"4px 1fr", gap:10, padding:"8px 0", borderBottom:`1px solid ${T.bdr}` }}>
+                  <div style={{ background:"#ff5a5a", borderRadius:2 }} />
+                  <div>
+                    <div style={{ fontSize:12, color:T.text, marginBottom:2 }}>{m.content.split("\n")[0].slice(0, 60)}{m.content.length > 60 ? "…" : ""}</div>
+                    <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>{new Date(m.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Artifacts */}
+          {artifacts.length > 0 && (
+            <div>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                <span style={{ fontFamily:T.serif, fontSize:14 }}>Artifacts</span>
+                <div style={{ flex:1, height:1, background:T.bdr }} />
+                <span style={{ fontFamily:T.mono, fontSize:9, color:T.faint }}>{artifacts.length}</span>
+              </div>
+              {artifacts.slice(0, 5).map((a, i) => (
+                <div key={i} style={{ display:"grid", gridTemplateColumns:"auto 1fr auto", gap:10, alignItems:"center", padding:"8px 10px", background:T.bg2, border:`1px solid ${T.bdr}`, borderRadius:5, marginBottom:5 }}>
+                  <span style={{ fontFamily:T.mono, fontSize:8.5, color:roomConfig.color, border:`1px solid ${roomConfig.color}44`, padding:"1px 6px", borderRadius:3, letterSpacing:"0.08em" }}>{a.mime_type?.includes("pdf") ? "PDF" : a.mime_type?.includes("image") ? "IMG" : "DOC"}</span>
+                  <span style={{ fontSize:12, color:T.body, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.name}</span>
+                  <span style={{ fontFamily:T.mono, fontSize:9, color:T.faint }}>RAG</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Return brief — "while you were away" panel shown at top of chat ──────────
 function ReturnBrief({ brief, onDismiss, onCatchUp }: {
   brief: { directorText: string; events: any[]; awayStr: string; onYouCount: number };
@@ -1242,6 +1528,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const roomConfig = ROOM_TYPE_CONFIG[roomType];
   const router = useRouter();
   const [screen, setScreen]   = useState<Screen>("empty");
+  const [viewMode, setViewMode] = useState<"chat" | "studio" | "dashboard">("chat");
   const [modal, setModal]     = useState<Modal>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput]     = useState("");
@@ -2367,6 +2654,28 @@ ${directorSynthesis}`,
                 <span style={{ fontSize:9, color:"#c89cff", fontFamily:T.mono }}>{tone.trackName}</span>
               </div>
             )}
+
+            {/* View mode tabs — only shown in chat screen */}
+            {screen === "chat" && messages.length > 0 && (
+              <div style={{ display:"flex", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:5, padding:2, gap:0, flexShrink:0 }}>
+                {(["chat", "studio", "dashboard"] as const).map(mode => {
+                  const labels: Record<string, string> = { chat:"chat", studio:"◎ studio", dashboard:"dashboard" };
+                  const active = viewMode === mode;
+                  const dirColor = "#c89cff";
+                  return (
+                    <button key={mode} onClick={() => setViewMode(mode)} style={{
+                      fontFamily:T.mono, fontSize:9, letterSpacing:"0.06em",
+                      padding:"4px 9px", borderRadius:3, border:"none", cursor:"pointer",
+                      background: active ? (mode === "studio" ? dirColor+"18" : T.surf) : "transparent",
+                      color: active ? (mode === "studio" ? dirColor : T.text) : T.meta,
+                      ...(active && mode === "studio" ? { border:`1px solid ${dirColor}44` } : {}),
+                      transition:"all 0.15s",
+                    }}>{labels[mode]}</button>
+                  );
+                })}
+              </div>
+            )}
+
             {[
               { lbl:"⌘K", title:"Command palette (⌘K)", fn:() => setModal("command") },
               { lbl:"⚙",  title:"Configure roles",      fn:() => setScreen("roles")  },
@@ -2500,6 +2809,31 @@ ${directorSynthesis}`,
 
       {screen === "chat" && (
         <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+
+        {/* ── Studio view ── */}
+        {viewMode === "studio" && (
+          <StudioView
+            messages={messages}
+            agents={AGENTS}
+            directions={directions}
+            onInsertMention={insertMention}
+            onBack={() => setViewMode("chat")}
+          />
+        )}
+
+        {/* ── Dashboard view ── */}
+        {viewMode === "dashboard" && (
+          <DashboardView
+            messages={messages}
+            directions={directions}
+            artifacts={artifacts}
+            room={room}
+            roomConfig={roomConfig}
+          />
+        )}
+
+        {/* ── Chat view ── */}
+        {viewMode === "chat" && (
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
           {/* Pinned directions */}
           <DirectionsPanel directions={directions} onRemove={removeDirection} />
@@ -2768,6 +3102,7 @@ ${directorSynthesis}`,
             </div>
           </div>
         </div>
+        )} {/* end viewMode === "chat" */}
         {notesOpen && (
           <NotesPanel
             notes={notes}
