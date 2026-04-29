@@ -84,8 +84,8 @@ function RoomCard({
     }
   };
 
-  const bg = "#0a0a0a", surf = "#111111", bdr = "#1e1e1e", bdr2 = "#2a2a2a";
-  const text = "#dcdcdc", sub = "#888888", mono = "'IBM Plex Mono',monospace", sans = "'IBM Plex Sans',sans-serif";
+  const bg = "#0a0a0c", surf = "#131318", bdr = "#23232a", bdr2 = "#2e2e36";
+  const text = "#e5e5ea", sub = "#8a8a92", mono = "'IBM Plex Mono', ui-monospace, monospace", sans = "'IBM Plex Sans', system-ui, sans-serif";
 
   return (
     <div style={{ position: "relative", marginBottom: 8, overflow: "hidden", borderRadius: 6 }}>
@@ -130,7 +130,7 @@ function RoomCard({
               cursor: isConfirming || swipeX > 0 ? "default" : "pointer",
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 500, color: text, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 15, fontWeight: 400, color: text, fontFamily: "'DM Serif Display', Georgia, serif", marginBottom: 5, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
               {highlightFn ? highlightFn(room.name) : room.name}
               {room.is_private && (
                 <span style={{ fontSize: 9, color: sub, fontFamily: mono, border: `1px solid ${bdr2}`, padding: "1px 5px", borderRadius: 3 }}>
@@ -296,8 +296,8 @@ export default function RoomsPage() {
     setConfirmDeleteId(null);
   }
 
-  const bg = "#0a0a0a", surf = "#111111", bdr = "#1e1e1e", bdr2 = "#2a2a2a";
-  const text = "#dcdcdc", sub = "#888888", mono = "'IBM Plex Mono',monospace", sans = "'IBM Plex Sans',sans-serif";
+  const bg = "#0a0a0c", surf = "#131318", bdr = "#23232a", bdr2 = "#2e2e36";
+  const text = "#e5e5ea", sub = "#8a8a92", mono = "'IBM Plex Mono', ui-monospace, monospace", sans = "'IBM Plex Sans', system-ui, sans-serif";
 
   const q = searchQuery.trim().toLowerCase();
   const filteredRooms = q
@@ -331,7 +331,7 @@ export default function RoomsPage() {
   return (
     <div style={{ minHeight: "100vh", background: bg, color: text, fontFamily: sans }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=DM+Serif+Display:ital@0;1&family=Source+Serif+Pro:ital,wght@0,400;1,400&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         input:focus { outline: none; }
         ::-webkit-scrollbar { width: 4px; }
