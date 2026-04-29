@@ -71,7 +71,34 @@ function RoomCard({ room, onOpen, onDelete, isOwner, deleting, confirmDeleteId, 
   const isConfirming = confirmDeleteId === room.id;
   const cfg = ROOM_TYPE_CONFIG[(room.room_type as RoomType) ?? "writers"];
 
-  // Check if room has unread activity (new messages since last visit)
+  // Swipe-to-delete (mobile)
+  const [swipeX, setSwipeX] = useState(0);
+  const [swiping, setSwiping] = useState(false);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const SNAP_THRESHOLD = 52;
+  const DELETE_ZONE = 84;
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (!isOwner) return;
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    setSwiping(true);
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!swiping) return;
+    const dx = touchStartX.current - e.touches[0].clientX;
+    const dy = Math.abs(touchStartY.current - e.touches[0].clientY);
+    if (dy > Math.abs(dx)) return; // vertical scroll — cancel
+    if (dx < 0) { setSwipeX(0); return; }
+    setSwipeX(Math.min(dx, DELETE_ZONE));
+  };
+  const onTouchEnd = () => {
+    setSwiping(false);
+    setSwipeX(swipeX >= SNAP_THRESHOLD ? DELETE_ZONE : 0);
+  };
+
+  // Unread indicator
   const hasUnread = (() => {
     if (!room.last_message_at) return false;
     try {
@@ -85,74 +112,102 @@ function RoomCard({ room, onOpen, onDelete, isOwner, deleting, confirmDeleteId, 
     <div
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      style={{
-        background: T.surf,
-        border: `1px solid ${isConfirming ? "#ff5a5a44" : T.bdr}`,
-        borderLeft: `3px solid ${isConfirming ? "#ff5a5a" : cfg.color}`,
-        borderRadius: "0 6px 6px 0",
-        marginBottom: 6,
-        transition: "border-color 0.15s",
-      }}
+      style={{ position: "relative", marginBottom: 6, overflow: "hidden", borderRadius: "0 6px 6px 0" }}
     >
-      <div style={{ display: "flex", alignItems: "center" }}>
+      {/* Red delete zone — revealed by swipe */}
+      {isOwner && (
         <div
-          onClick={() => !isConfirming && onOpen()}
-          style={{ flex: 1, padding: "13px 16px", cursor: isConfirming ? "default" : "pointer" }}
+          onClick={onDelete}
+          style={{
+            position: "absolute", right: 0, top: 0, bottom: 0,
+            width: DELETE_ZONE, background: "#ff5a5a",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer",
+          }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: T.serif, fontSize: 15, color: T.text, fontWeight: 400 }}>{room.name}</span>
-            <span style={{ fontFamily: T.mono, fontSize: 9, color: cfg.color, border: `1px solid ${cfg.color}40`, padding: "1px 6px", borderRadius: 3 }}>
-              {cfg.icon} {cfg.label}
-            </span>
-            {room.is_private && (
-              <span style={{ fontFamily: T.mono, fontSize: 9, color: T.sub, border: `1px solid ${T.bdr2}`, padding: "1px 5px", borderRadius: 3 }}>PRIVATE</span>
-            )}
-            {isOwner && <span style={{ fontFamily: T.mono, fontSize: 9, color: "#0fe89888" }}>owner</span>}
-          </div>
-          {room.description && (
-            <div style={{ fontSize: 12, color: T.sub, marginBottom: 4 }}>{room.description}</div>
-          )}
-          <div style={{ display: "flex", gap: 10 }}>
-            {room.last_message_at && (
-              <span style={{ fontFamily: T.mono, fontSize: 10, color: hasUnread ? "#f5b041" : "#444", display: "flex", alignItems: "center", gap: 4 }}>
-                {hasUnread && <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#f5b041", display: "inline-block", flexShrink: 0 }} />}
-                {timeAgo(room.last_message_at)}
-              </span>
-            )}
-            {(room.message_count ?? 0) > 0 && (
-              <span style={{ fontFamily: T.mono, fontSize: 10, color: "#444" }}>{room.message_count} messages</span>
-            )}
-            {(room.message_count ?? 0) === 0 && !room.last_message_at && (
-              <span style={{ fontFamily: T.mono, fontSize: 10, color: "#333" }}>empty</span>
-            )}
-          </div>
-        </div>
-
-        {isOwner && !isConfirming && hov && (
-          <button
-            onClick={e => { e.stopPropagation(); setConfirmDeleteId(room.id); }}
-            style={{ background: "none", border: "none", borderLeft: `1px solid ${T.bdr}`, color: "#444", cursor: "pointer", padding: "0 16px", alignSelf: "stretch", fontSize: 15, transition: "color 0.15s" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "#ff5a5a")}
-            onMouseLeave={e => (e.currentTarget.style.color = "#444")}
-          >⌫</button>
-        )}
-
-        {!isConfirming && (
-          <span style={{ color: T.faint, fontSize: 18, padding: "0 14px" }}>→</span>
-        )}
-      </div>
-
-      {isConfirming && (
-        <div style={{ borderTop: "1px solid #ff5a5a33", background: "#ff5a5a0a", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 12, color: "#ff5a5a", fontFamily: T.mono }}>Delete "{room.name}"? Cannot be undone.</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setConfirmDeleteId(null)} style={{ padding: "5px 12px", borderRadius: 5, background: "none", border: `1px solid ${T.bdr2}`, color: T.sub, fontSize: 12, cursor: "pointer" }}>Cancel</button>
-            <button onClick={onDelete} disabled={deleting} style={{ padding: "5px 12px", borderRadius: 5, background: "#ff5a5a18", border: "1px solid #ff5a5a55", color: "#ff5a5a", fontSize: 12, cursor: "pointer" }}>
-              {deleting ? "Deleting…" : "Delete"}
-            </button>
-          </div>
+          <span style={{ fontFamily: T.mono, fontSize: 10, color: "#fff", letterSpacing: "0.1em" }}>
+            {deleting ? "…" : "DELETE"}
+          </span>
         </div>
       )}
+
+      {/* Card */}
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{
+          background: T.surf,
+          border: `1px solid ${isConfirming ? "#ff5a5a44" : T.bdr}`,
+          borderLeft: `3px solid ${isConfirming ? "#ff5a5a" : cfg.color}`,
+          borderRadius: "0 6px 6px 0",
+          transform: `translateX(-${swipeX}px)`,
+          transition: swiping ? "none" : "transform 0.22s ease, border-color 0.15s",
+          position: "relative",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div
+            onClick={() => !isConfirming && swipeX === 0 && onOpen()}
+            style={{ flex: 1, padding: "13px 16px", cursor: isConfirming || swipeX > 0 ? "default" : "pointer" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: T.serif, fontSize: 15, color: T.text, fontWeight: 400 }}>{room.name}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 9, color: cfg.color, border: `1px solid ${cfg.color}40`, padding: "1px 6px", borderRadius: 3 }}>
+                {cfg.icon} {cfg.label}
+              </span>
+              {room.is_private && (
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.sub, border: `1px solid ${T.bdr2}`, padding: "1px 5px", borderRadius: 3 }}>PRIVATE</span>
+              )}
+              {isOwner && <span style={{ fontFamily: T.mono, fontSize: 9, color: "#0fe89888" }}>owner</span>}
+            </div>
+            {room.description && (
+              <div style={{ fontSize: 12, color: T.sub, marginBottom: 4 }}>{room.description}</div>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              {room.last_message_at && (
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: hasUnread ? "#f5b041" : "#444", display: "flex", alignItems: "center", gap: 4 }}>
+                  {hasUnread && <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#f5b041", display: "inline-block", flexShrink: 0 }} />}
+                  {timeAgo(room.last_message_at)}
+                </span>
+              )}
+              {(room.message_count ?? 0) > 0 && (
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: "#444" }}>{room.message_count} messages</span>
+              )}
+              {(room.message_count ?? 0) === 0 && !room.last_message_at && (
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: "#333" }}>empty</span>
+              )}
+            </div>
+          </div>
+
+          {/* Desktop delete button — hover only */}
+          {isOwner && !isConfirming && hov && swipeX === 0 && (
+            <button
+              onClick={e => { e.stopPropagation(); setConfirmDeleteId(room.id); }}
+              style={{ background: "none", border: "none", borderLeft: `1px solid ${T.bdr}`, color: "#444", cursor: "pointer", padding: "0 16px", alignSelf: "stretch", fontSize: 15, transition: "color 0.15s" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "#ff5a5a")}
+              onMouseLeave={e => (e.currentTarget.style.color = "#444")}
+            >⌫</button>
+          )}
+
+          {!isConfirming && swipeX === 0 && (
+            <span style={{ color: T.faint, fontSize: 18, padding: "0 14px" }}>→</span>
+          )}
+        </div>
+
+        {/* Desktop inline confirm */}
+        {isConfirming && (
+          <div style={{ borderTop: "1px solid #ff5a5a33", background: "#ff5a5a0a", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, color: "#ff5a5a", fontFamily: T.mono }}>Delete "{room.name}"? Cannot be undone.</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setConfirmDeleteId(null)} style={{ padding: "5px 12px", borderRadius: 5, background: "none", border: `1px solid ${T.bdr2}`, color: T.sub, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={onDelete} disabled={deleting} style={{ padding: "5px 12px", borderRadius: 5, background: "#ff5a5a18", border: "1px solid #ff5a5a55", color: "#ff5a5a", fontSize: 12, cursor: "pointer" }}>
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
