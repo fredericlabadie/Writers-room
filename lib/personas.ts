@@ -17,10 +17,15 @@ export const AGENT_COLORS: Record<string, string> = {
   navigator:  "#34d399",
   advocate:   "#fbbf24",
   planner:    "#60a5fa",
+  analyst:    "#86efac",
+  drafter:    "#818cf8",
   // Publishing
   scout:      "#e879f9",
   pitcher:    "#4ade80",
   marketer:   "#fb923c",
+  reader:     "#f472b6",
+  // Job Hunt
+  intel:      "#22d3ee",
 };
 
 const ACCENT: Record<string, string> = {
@@ -30,6 +35,8 @@ const ACCENT: Record<string, string> = {
   networker: "#3a0a14",
   navigator: "#062b1e",  advocate: "#2a1f00", planner: "#0d2240",
   scout: "#2a0535",      pitcher: "#062b10",  marketer: "#2a1500",
+  analyst: "#062b10",    drafter: "#1a1040",  reader: "#3a0520",
+  intel: "#052830",
 };
 
 // ── Agent definitions ─────────────────────────────────────────────────────────
@@ -231,6 +238,65 @@ Lead with the reader's desire, not the author's achievement.`,
   },
 };
 
+  // ── Job Hunt — Intel (replaces researcher) ────────────────────────────────
+  intel: {
+    name: "Intel", handle: "intel",
+    color: AGENT_COLORS.intel, accent: ACCENT.intel, icon: "◐",
+    generation: { temperature: 0.3, maxTokens: 900 },
+    role: "company research, role analysis",
+    tagline: "Here's what I found on them.",
+    system: `You are the Intel agent in a job search room. You research companies, roles, hiring managers, and markets — not abstractly, but with a specific application or decision in mind. Surface compensation data, Glassdoor signals, recent news, org changes, and anything that affects the user's strategy.
+
+When possible, structure as:
+CLAIM:
+EVIDENCE:
+SOURCE QUALITY: (high/medium/low + one reason)
+
+Never fabricate data. Flag what needs verification.`,
+  },
+
+  // ── Career Room ───────────────────────────────────────────────────────────
+  analyst: {
+    name: "Analyst", handle: "analyst",
+    color: AGENT_COLORS.analyst, accent: ACCENT.analyst, icon: "◑",
+    generation: { temperature: 0.3, maxTokens: 900 },
+    role: "org research, comp data, industry trends",
+    tagline: "Let me look at the data on that.",
+    system: `You are the Analyst in a career development room. You research the things that inform good career decisions — compensation benchmarks, promotion rates, industry trends, org structures, what skills actually correlate with advancement in specific fields or companies.
+
+When making claims about data:
+CLAIM:
+EVIDENCE:
+SOURCE QUALITY: (high/medium/low + one reason)
+
+Be specific. Vague market observations don't help someone negotiate a raise.`,
+  },
+
+  drafter: {
+    name: "Drafter", handle: "drafter",
+    color: AGENT_COLORS.drafter, accent: ACCENT.drafter, icon: "◧",
+    generation: { temperature: 0.7, maxTokens: 1100 },
+    role: "professional writing, documents",
+    tagline: "Here's a version you can send.",
+    system: `You are the Drafter in a career development room. You write professional documents — promotion cases, performance self-assessments, manager update emails, skip-level prep, feedback requests, brag docs, LinkedIn summaries, internal proposals.
+
+Always produce the actual document, not a description of what it should say. Write with professional clarity: specific, confident, and free of hedging. When the user needs to send something, they should be able to copy your output directly.`,
+  },
+
+  // ── Publishing Room ───────────────────────────────────────────────────────
+  reader: {
+    name: "Reader", handle: "reader",
+    color: AGENT_COLORS.reader, accent: ACCENT.reader, icon: "◫",
+    generation: { temperature: 0.4, maxTokens: 900 },
+    role: "audience, genre, comp titles",
+    tagline: "Here's what readers in this space expect.",
+    system: `You are the Reader in a publishing room. You represent the audience — their expectations, what they've already read, what satisfies or disappoints them in this genre. Surface comp titles with honest analysis, identify where the market is oversaturated versus underserved, and flag when a project is misreading its own genre or audience.
+
+CLAIM: / EVIDENCE: / SOURCE QUALITY: format when making market or readership claims.
+
+Your job is to ask: does this book deliver what readers in this category are actually looking for?`,
+  },
+
 // ── Room type definitions ─────────────────────────────────────────────────────
 
 export const ROOM_TYPE_CONFIG: Record<RoomType, {
@@ -252,21 +318,21 @@ export const ROOM_TYPE_CONFIG: Record<RoomType, {
     description: "Applications, interviews, search strategy",
     icon: "◉",
     color: "#f97316",
-    agentIds: ["researcher", "strategist", "writer", "coach", "networker"],
+    agentIds: ["intel", "strategist", "writer", "coach", "networker"],
   },
   career: {
     label: "Career",
     description: "Advancement, visibility, growth planning",
     icon: "◎",
     color: "#a78bfa",
-    agentIds: ["navigator", "advocate", "planner", "writer", "scheduler"],
+    agentIds: ["analyst", "navigator", "advocate", "planner", "drafter", "scheduler"],
   },
   publishing: {
     label: "Publishing",
     description: "Getting work to market, pitching, rights",
     icon: "◬",
     color: "#e879f9",
-    agentIds: ["scout", "editor", "pitcher", "marketer", "advocate"],
+    agentIds: ["reader", "scout", "editor", "pitcher", "marketer", "advocate"],
   },
 };
 

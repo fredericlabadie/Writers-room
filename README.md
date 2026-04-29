@@ -17,9 +17,9 @@ Four room types, each with five purpose-built agents:
 | Room | Agents | Use it for |
 |---|---|---|
 | **Writers Room** | researcher · writer · editor · critic · director | Essays, articles, scripts, brainstorming |
-| **Job Hunt** | researcher · strategist · writer · coach · networker | Interview prep, applications, outreach |
-| **Career** | navigator · advocate · planner · writer · scheduler | Advancement, visibility, promotion planning |
-| **Publishing** | scout · editor · pitcher · marketer · advocate | Queries, submissions, launch strategy |
+| **Job Hunt** | intel · strategist · writer · coach · networker | Interview prep, applications, outreach |
+| **Career** | analyst · navigator · advocate · planner · drafter · scheduler | Advancement, visibility, promotion planning |
+| **Publishing** | reader · scout · editor · pitcher · marketer · advocate | Queries, submissions, launch strategy |
 
 ---
 
