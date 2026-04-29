@@ -541,6 +541,7 @@ export default function RoomsPage() {
   const [selectedView, setSelectedView] = useState<"all" | string>("all"); // "all" or folder id
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(true);
   const [roomsVersion, setRoomsVersion] = useState(0); // bump to trigger re-fetch
 
   useEffect(() => {
@@ -615,50 +616,62 @@ export default function RoomsPage() {
             {/* Projects section */}
             <div style={{ marginTop: 12 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 10px 6px" }}>
-                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.meta, letterSpacing: "0.12em" }}>PROJECTS</span>
-                <button onClick={() => setShowCreateFolder(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", color: T.faint, fontSize: 14, lineHeight: 1, padding: "0 2px" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "#4da8ff")} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>+</button>
+                <button
+                  onClick={() => setProjectsOpen(s => !s)}
+                  style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                >
+                  <span style={{ fontFamily: T.mono, fontSize: 9, color: T.meta, letterSpacing: "0.12em" }}>PROJECTS</span>
+                  <span style={{ fontFamily: T.mono, fontSize: 9, color: T.faint, lineHeight: 1 }}>{projectsOpen ? "▾" : "▸"}</span>
+                </button>
+                {projectsOpen && (
+                  <button onClick={() => setShowCreateFolder(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", color: T.faint, fontSize: 14, lineHeight: 1, padding: "0 2px" }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "#4da8ff")} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>+</button>
+                )}
               </div>
 
-              {showCreateFolder && (
-                <div style={{ padding: "4px 0" }}>
-                  <CreateFolderPanel
-                    onClose={() => setShowCreateFolder(false)}
-                    onCreate={folder => { setFolders(prev => [folder, ...prev]); setShowCreateFolder(false); setSelectedView(folder.id); }}
-                  />
-                </div>
-              )}
-
-              {folders.length === 0 && !showCreateFolder && (
-                <div style={{ padding: "8px 10px", fontFamily: T.mono, fontSize: 10, color: "#333" }}>No projects yet — press + to create one</div>
-              )}
-
-              {folders.map(folder => {
-                const isOpen = expandedFolders.has(folder.id);
-                const isSelected = selectedView === folder.id;
-                const folderRooms = rooms.filter(e => e.rooms.folder_id === folder.id);
-                return (
-                  <div key={folder.id}>
-                    <div style={{ display: "grid", gridTemplateColumns: "14px 16px 1fr auto", alignItems: "center", gap: 5, padding: "7px 10px", borderRadius: 5, cursor: "pointer", background: isSelected ? T.surf : "transparent" }}
-                      onClick={() => { setSelectedView(folder.id); if (!isOpen) toggleFolder(folder.id); }}>
-                      <button onClick={e => { e.stopPropagation(); toggleFolder(folder.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.meta, fontSize: 9, padding: 0, lineHeight: 1 }}>{isOpen ? "▾" : "▸"}</button>
-                      <span style={{ color: "#4da8ff", fontSize: 12 }}>◬</span>
-                      <span style={{ fontSize: 12.5, color: isSelected ? T.text : T.body, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{folder.name}</span>
-                      <span style={{ fontFamily: T.mono, fontSize: 10, color: T.meta }}>{folder.room_count ?? 0}</span>
+              {projectsOpen && (
+                <>
+                  {showCreateFolder && (
+                    <div style={{ padding: "4px 0" }}>
+                      <CreateFolderPanel
+                        onClose={() => setShowCreateFolder(false)}
+                        onCreate={folder => { setFolders(prev => [folder, ...prev]); setShowCreateFolder(false); setSelectedView(folder.id); }}
+                      />
                     </div>
-                    {isOpen && folderRooms.length > 0 && (
-                      <div style={{ marginLeft: 16, borderLeft: `1px solid #4da8ff33`, paddingLeft: 10, marginTop: 1, marginBottom: 4 }}>
-                        {folderRooms.map(entry => (
-                          <button key={entry.rooms.id} onClick={() => openRoom(entry.rooms.id)} style={{ display: "block", width: "100%", padding: "5px 8px", fontSize: 12, color: T.sub, cursor: "pointer", borderRadius: 4, background: "transparent", border: "none", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                            onMouseEnter={e => (e.currentTarget.style.background = T.surf)} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                            {entry.rooms.name}
-                          </button>
-                        ))}
+                  )}
+
+                  {folders.length === 0 && !showCreateFolder && (
+                    <div style={{ padding: "8px 10px", fontFamily: T.mono, fontSize: 10, color: "#333" }}>No projects yet — press + to create one</div>
+                  )}
+
+                  {folders.map(folder => {
+                    const isOpen = expandedFolders.has(folder.id);
+                    const isSelected = selectedView === folder.id;
+                    const folderRooms = rooms.filter(e => e.rooms.folder_id === folder.id);
+                    return (
+                      <div key={folder.id}>
+                        <div style={{ display: "grid", gridTemplateColumns: "14px 16px 1fr auto", alignItems: "center", gap: 5, padding: "7px 10px", borderRadius: 5, cursor: "pointer", background: isSelected ? T.surf : "transparent" }}
+                          onClick={() => { setSelectedView(folder.id); if (!isOpen) toggleFolder(folder.id); }}>
+                          <button onClick={e => { e.stopPropagation(); toggleFolder(folder.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.meta, fontSize: 9, padding: 0, lineHeight: 1 }}>{isOpen ? "▾" : "▸"}</button>
+                          <span style={{ color: "#4da8ff", fontSize: 12 }}>◬</span>
+                          <span style={{ fontSize: 12.5, color: isSelected ? T.text : T.body, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{folder.name}</span>
+                          <span style={{ fontFamily: T.mono, fontSize: 10, color: T.meta }}>{folder.room_count ?? 0}</span>
+                        </div>
+                        {isOpen && folderRooms.length > 0 && (
+                          <div style={{ marginLeft: 16, borderLeft: `1px solid #4da8ff33`, paddingLeft: 10, marginTop: 1, marginBottom: 4 }}>
+                            {folderRooms.map(entry => (
+                              <button key={entry.rooms.id} onClick={() => openRoom(entry.rooms.id)} style={{ display: "block", width: "100%", padding: "5px 8px", fontSize: 12, color: T.sub, cursor: "pointer", borderRadius: 4, background: "transparent", border: "none", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                onMouseEnter={e => (e.currentTarget.style.background = T.surf)} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                                {entry.rooms.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </>
+              )}
             </div>
           </div>
 
