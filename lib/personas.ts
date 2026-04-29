@@ -6,8 +6,8 @@ export const AGENT_COLORS: Record<string, string> = {
   researcher: "#0fe898",
   writer:     "#4da8ff",
   editor:     "#ffca00",
-  critic:     "#ff3d3d",
-  director:   "#c030ff",
+  critic:     "#ff5a5a",
+  director:   "#c89cff",
   // Job Hunt
   strategist: "#f97316",
   coach:      "#38bdf8",
@@ -30,7 +30,7 @@ export const AGENT_COLORS: Record<string, string> = {
 
 const ACCENT: Record<string, string> = {
   researcher: "#062b1e", writer: "#0d2240", editor: "#2a1f00",
-  critic: "#2a0808",     director: "#1a0530",
+  critic: "#2a0e0e",     director: "#1e1030",
   strategist: "#3a1500", coach: "#0a2030",  scheduler: "#1e1040",
   networker: "#3a0a14",
   navigator: "#062b1e",  advocate: "#2a1f00", planner: "#0d2240",
