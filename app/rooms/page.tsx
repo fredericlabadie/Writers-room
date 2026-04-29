@@ -542,6 +542,7 @@ export default function RoomsPage() {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [roomsVersion, setRoomsVersion] = useState(0); // bump to trigger re-fetch
 
   useEffect(() => {
@@ -571,11 +572,17 @@ export default function RoomsPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.sans, display: "flex", flexDirection: "column" }}>
-      <style>{`${FONTS} *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; } input, textarea { font-family: inherit; } input:focus, textarea:focus { outline: none; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${T.bdr2}; border-radius: 2px; }`}</style>
+      <style>{`${FONTS} *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; } input, textarea { font-family: inherit; } input:focus, textarea:focus { outline: none; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${T.bdr2}; border-radius: 2px; } .sidebar-overlay { display: none; } @media (max-width: 700px) { .sidebar-desktop { display: none !important; } .sidebar-mobile { position: fixed !important; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); transition: transform 0.22s ease; } .sidebar-mobile.open { transform: translateX(0) !important; } .sidebar-overlay { display: block; position: fixed; inset: 0; z-index: 99; background: rgba(0,0,0,0.55); } .sidebar-toggle { display: flex !important; } }`}</style>
 
       {/* ── Top bar ── */}
       <div style={{ padding: "0 24px", height: 52, borderBottom: `1px solid ${T.bdr}`, background: T.bg2, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {/* Mobile sidebar toggle — hidden on desktop via CSS */}
+          <button
+            className="sidebar-toggle"
+            onClick={() => setSidebarOpen(s => !s)}
+            style={{ display: "none", background: "none", border: `1px solid ${T.bdr2}`, borderRadius: 5, cursor: "pointer", color: T.sub, padding: "4px 8px", fontSize: 14, lineHeight: 1, marginRight: 4 }}
+          >☰</button>
           <div style={{ display: "flex", gap: 6 }}>
             {[{ icon: "◈", color: "#0fe898" },{ icon: "✦", color: "#4da8ff" },{ icon: "⌘", color: "#ffca00" },{ icon: "⚡", color: "#ff5a5a" },{ icon: "◎", color: "#c89cff" }].map((a, i) => (
               <span key={i} style={{ color: a.color, fontSize: 13 }}>{a.icon}</span>
@@ -596,8 +603,14 @@ export default function RoomsPage() {
       {/* ── Layout ── */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
 
-        {/* ── Sidebar ── */}
-        <div style={{ width: 260, background: T.bg2, borderRight: `1px solid ${T.bdr}`, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        {/* Overlay — tapping it closes the sidebar on mobile */}
+        {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+
+        {/* ── Sidebar — desktop: inline; mobile: slide-in drawer ── */}
+        <div
+          className={`sidebar-desktop sidebar-mobile${sidebarOpen ? " open" : ""}`}
+          style={{ width: 260, background: T.bg2, borderRight: `1px solid ${T.bdr}`, display: "flex", flexDirection: "column", flexShrink: 0 }}
+        >
           <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
 
             {/* Navigation */}
@@ -605,7 +618,7 @@ export default function RoomsPage() {
               {[
                 { id: "all", icon: "◍", label: "All rooms", count: rooms.length },
               ].map(item => (
-                <button key={item.id} onClick={() => setSelectedView(item.id)} style={{ display: "grid", gridTemplateColumns: "16px 1fr auto", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 5, cursor: "pointer", background: selectedView === item.id ? T.surf : "transparent", border: selectedView === item.id ? `1px solid ${T.bdr2}` : "1px solid transparent", textAlign: "left" }}>
+                <button key={item.id} onClick={() => { setSelectedView(item.id); setSidebarOpen(false); }} style={{ display: "grid", gridTemplateColumns: "16px 1fr auto", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 5, cursor: "pointer", background: selectedView === item.id ? T.surf : "transparent", border: selectedView === item.id ? `1px solid ${T.bdr2}` : "1px solid transparent", textAlign: "left" }}>
                   <span style={{ color: T.sub, fontSize: 12 }}>{item.icon}</span>
                   <span style={{ fontSize: 12.5, color: selectedView === item.id ? T.text : T.body }}>{item.label}</span>
                   <span style={{ fontFamily: T.mono, fontSize: 10, color: T.meta }}>{item.count}</span>
@@ -651,7 +664,7 @@ export default function RoomsPage() {
                     return (
                       <div key={folder.id}>
                         <div style={{ display: "grid", gridTemplateColumns: "14px 16px 1fr auto", alignItems: "center", gap: 5, padding: "7px 10px", borderRadius: 5, cursor: "pointer", background: isSelected ? T.surf : "transparent" }}
-                          onClick={() => { setSelectedView(folder.id); if (!isOpen) toggleFolder(folder.id); }}>
+                          onClick={() => { setSelectedView(folder.id); setSidebarOpen(false); if (!isOpen) toggleFolder(folder.id); }}>
                           <button onClick={e => { e.stopPropagation(); toggleFolder(folder.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.meta, fontSize: 9, padding: 0, lineHeight: 1 }}>{isOpen ? "▾" : "▸"}</button>
                           <span style={{ color: "#4da8ff", fontSize: 12 }}>◬</span>
                           <span style={{ fontSize: 12.5, color: isSelected ? T.text : T.body, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{folder.name}</span>
