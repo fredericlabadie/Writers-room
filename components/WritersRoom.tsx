@@ -536,6 +536,60 @@ function FloatingDock({ onMention, onChain, agentCtx, agents }: { onMention: (id
   );
 }
 
+// Notes Panel — collapsible side panel for shared room notes
+function NotesPanel({ notes, onChange, saving, onClose }: {
+  notes: string;
+  onChange: (v: string) => void;
+  saving: "idle" | "saving" | "saved";
+  onClose: () => void;
+}) {
+  return (
+    <div style={{
+      width:"30%", minWidth:240, maxWidth:420,
+      background:T.surf, borderLeft:`1px solid ${T.bdr}`,
+      display:"flex", flexDirection:"column", flexShrink:0, overflow:"hidden",
+    }}>
+      <div style={{
+        height:48, padding:"0 16px",
+        display:"flex", alignItems:"center", gap:8, flexShrink:0,
+        borderBottom:`1px solid ${T.bdr}`,
+      }}>
+        <span style={{ fontFamily:T.mono, fontSize:9, color:T.sub, letterSpacing:"0.14em", flex:1 }}>
+          📝 ROOM NOTES
+        </span>
+        <span style={{
+          fontFamily:T.mono, fontSize:8,
+          color: saving==="saving"?"#f97316" : saving==="saved"?"#0fe898" : T.meta,
+          transition:"color 0.3s",
+        }}>
+          {saving==="saving" ? "SAVING…" : saving==="saved" ? "SAVED ✓" : "AUTO-SAVES"}
+        </span>
+        <button onClick={onClose} style={{
+          background:"none", border:"none", color:T.meta, cursor:"pointer",
+          fontSize:18, lineHeight:1, padding:"0 0 0 8px",
+        }}>×</button>
+      </div>
+      <textarea
+        value={notes}
+        onChange={e => onChange(e.target.value)}
+        placeholder={"Shared notes for this room.\nCapture ideas, decisions, context…\n\nAuto-saved every 2 seconds.\nVisible to all room members."}
+        style={{
+          flex:1, background:"transparent", border:"none", outline:"none",
+          resize:"none", padding:"16px",
+          fontFamily:T.sans, fontSize:13, color:T.text, lineHeight:1.75,
+        }}
+      />
+      <div style={{
+        padding:"8px 16px", borderTop:`1px solid ${T.bdr}`, flexShrink:0,
+        display:"flex", justifyContent:"space-between", alignItems:"center",
+      }}>
+        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>{notes.length} chars</span>
+        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>shared · all members</span>
+      </div>
+    </div>
+  );
+}
+
 // Command palette
 function CommandPalette({ onClose, onScreen, onClear, onDemo, onModal, onExport }: {
   onClose: () => void;
@@ -724,12 +778,18 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [creatingEvents, setCreatingEvents] = useState<Set<number>>(new Set());
   const [createdEvents, setCreatedEvents] = useState<Set<number>>(new Set());
 
+  // Notes panel
+  const [notes, setNotes] = useState<string>(initialRoom.notes ?? "");
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesSaving, setNotesSaving] = useState<"idle"|"saving"|"saved">("idle");
+
   const bottomRef   = useRef<HTMLDivElement>(null);
   const scrollRef    = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
   const fileRef   = useRef<HTMLInputElement>(null);
+  const notesSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track IDs added locally so Realtime subscription doesn't double-add them
   const seenIds   = useRef<Set<string>>(new Set());
 
@@ -995,6 +1055,39 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const continueFromDirector = (directorText: string) => {
     setInput(`@writer continue from the director's direction`);
     inputRef.current?.focus();
+  };
+
+  // Notes — debounced save, 2 seconds after last keystroke
+  const handleNotesChange = (value: string) => {
+    setNotes(value);
+    setNotesSaving("saving");
+    if (notesSaveTimer.current) clearTimeout(notesSaveTimer.current);
+    notesSaveTimer.current = setTimeout(async () => {
+      await fetch(`/api/rooms/${room.id}`, {
+        method:"PATCH",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ notes: value }),
+      });
+      setNotesSaving("saved");
+      setTimeout(() => setNotesSaving("idle"), 2000);
+    }, 2000);
+  };
+
+  // Export — Google Drive for Google users, .md download for everyone else
+  const handleExport = async () => {
+    if (hasCalendarAccess) {
+      try {
+        const res = await fetch(`/api/rooms/${room.id}/export`, { method:"POST" });
+        if (res.ok) {
+          const ct = res.headers.get("content-type") ?? "";
+          if (ct.includes("application/json")) {
+            const data = await res.json();
+            if (data.driveUrl) { window.open(data.driveUrl, "_blank"); return; }
+          }
+        }
+      } catch { /* fall through to .md */ }
+    }
+    window.open(`/api/rooms/${room.id}/export`, "_blank");
   };
 
   // Insert chain arrow → @agent into input
@@ -1510,7 +1603,8 @@ ${directorSynthesis}`,
             {[
               { lbl:"⌘K", title:"Command palette (⌘K)", fn:() => setModal("command") },
               { lbl:"⚙",  title:"Configure roles",      fn:() => setScreen("roles")  },
-              { lbl:"⤴",  title:"Export session (.md)",  fn:() => window.open(`/api/rooms/${room.id}/export`, "_blank") },
+              { lbl:"📝", title:"Room notes",            fn:() => setNotesOpen(o => !o) },
+              { lbl:"⤴",  title:"Export session",        fn:handleExport },
               { lbl:"⌫",  title:"Clear conversation",   fn:() => setModal("clear")   },
             ].map(b => (
               <button key={b.lbl} onClick={b.fn} title={b.title} style={{
@@ -1611,6 +1705,7 @@ ${directorSynthesis}`,
       )}
 
       {screen === "chat" && (
+        <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
           {/* Pinned directions */}
           <DirectionsPanel directions={directions} onRemove={removeDirection} />
@@ -1854,6 +1949,15 @@ ${directorSynthesis}`,
             )}
             </div>
           </div>
+        </div>
+        {notesOpen && (
+          <NotesPanel
+            notes={notes}
+            onChange={handleNotesChange}
+            saving={notesSaving}
+            onClose={() => setNotesOpen(false)}
+          />
+        )}
         </div>
       )}
 
@@ -2123,7 +2227,7 @@ ${directorSynthesis}`,
           onClear={() => setModal("clear")}
           onDemo={() => { loadDemo(); setModal(null); }}
           onModal={setModal}
-          onExport={() => window.open(`/api/rooms/${room.id}/export`, "_blank")}
+          onExport={handleExport}
         />
       )}
 

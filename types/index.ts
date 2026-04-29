@@ -1,4 +1,4 @@
-export type PersonaId = string; // now dynamic — any registered agent handle
+export type PersonaId = string;
 
 export type RoomType = "writers" | "jobhunt" | "career" | "publishing";
 
@@ -46,6 +46,7 @@ export interface Room {
   invite_code: string | null;
   notebooklm_url: string | null;
   active_tone: SpotifyTone | null;
+  notes: string | null;
   created_at: string;
   member_count?: number;
 }
