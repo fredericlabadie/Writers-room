@@ -4,6 +4,7 @@ A collaborative AI workspace where multiple specialized agents help you write, r
 
 <!-- SCREENSHOT: Drop a 1400px wide screenshot of the chat interface here showing at least two agent responses and the director card. Filename: screenshot.png -->
 <!-- ![Writers Room](./screenshot.png) -->
+![Writers Room](./screenshot.png)
 
 **Live:** [writersroom.fredericlabadie.com](https://writersroom.fredericlabadie.com)
 
