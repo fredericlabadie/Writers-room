@@ -1692,6 +1692,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [stageAbout, setStageAbout] = useState(initialRoom.description ?? "");
   const [stageReader, setStageReader] = useState("");
   const [stageTone, setStageTone]   = useState("");
+
+  const [screen, setScreen]   = useState<Screen>("empty");
   const [viewMode, setViewMode] = useState<"chat" | "studio" | "dashboard">("chat");
   const [modal, setModal]     = useState<Modal>(null);
   const [messages, setMessages] = useState<Message[]>([]);
