@@ -7,18 +7,23 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { Message, Room, PersonaId, Artifact, SpotifyTone } from "@/types";
 import type { ReviewScope } from "@/lib/review-mode";
 
-// ── Design tokens (from Claude Design handoff) ───────────────────────────────
+// ── Design tokens (Claude Design handoff — v2) ───────────────────────────────
 const T = {
-  bg:    "#0a0a0a",
-  surf:  "#111111",
-  surf2: "#161616",
-  bdr:   "#1e1e1e",
-  bdr2:  "#2a2a2a",
-  text:  "#dcdcdc",
-  sub:   "#888888",
-  meta:  "#7a7a7a",
-  mono:  "'IBM Plex Mono', monospace",
-  sans:  "'IBM Plex Sans', sans-serif",
+  bg:    "#0a0a0c",
+  bg2:   "#0e0e11",
+  surf:  "#131318",
+  surf2: "#1a1a20",
+  bdr:   "#23232a",
+  bdr2:  "#2e2e36",
+  text:  "#e5e5ea",
+  body:  "#b8b8c0",
+  sub:   "#8a8a92",
+  meta:  "#5a5a62",
+  faint: "#3a3a42",
+  mono:  "'IBM Plex Mono', ui-monospace, monospace",
+  sans:  "'IBM Plex Sans', system-ui, sans-serif",
+  serif: "'DM Serif Display', 'Source Serif Pro', Georgia, serif",
+  italic:"'Source Serif Pro', 'Iowan Old Style', Georgia, serif",
 } as const;
 
 type Screen = "empty" | "chat" | "roles";
@@ -61,8 +66,8 @@ function DelBtn({ onClick }: { onClick: () => void }) {
             fontFamily:T.mono, fontSize:9, lineHeight:1.4 }}>no</button>
         <button
           onClick={() => { setConfirming(false); onClick(); }}
-          style={{ background:"#ff3d3d18", border:"1px solid #ff3d3d55", borderRadius:3,
-            cursor:"pointer", color:"#ff3d3d", padding:"1px 8px",
+          style={{ background:"#ff5a5a18", border:"1px solid #ff5a5a55", borderRadius:3,
+            cursor:"pointer", color:"#ff5a5a", padding:"1px 8px",
             fontFamily:T.mono, fontSize:9, lineHeight:1.4 }}>yes</button>
       </div>
     );
@@ -239,77 +244,193 @@ function AgentMessage({ msg, onDelete, reactions, onReact, agents, collapsed, on
   const isCritic   = msg.persona === "critic";
   const isWriter   = msg.persona === "writer";
   const isEditor   = msg.persona === "editor";
-  const isResearch = msg.persona === "researcher";
+  const isResearch = msg.persona === "researcher" || msg.persona === "intel" || msg.persona === "analyst" || msg.persona === "reader";
 
-  const borders = isCritic
-    ? { border:`1.5px dashed ${a.color}77`, borderLeft:`3px solid ${a.color}` }
-    : isEditor
-    ? { borderLeft:`3px solid ${a.color}`, borderBottom:`1px solid ${a.color}66` }
-    : isResearch
-    ? { borderLeft:`3px solid ${a.color}`, borderRight:`1px solid ${a.color}44` }
-    : { borderLeft:`3px solid ${a.color}` };
-
-  const bg = isCritic ? a.color+"14" : isEditor ? a.color+"0d" : isResearch ? a.color+"0b" : a.color+"0a";
+  const voiceLabel = isResearch ? "RESEARCH NOTE" : isWriter ? "DRAFT" : isEditor ? "REVISION" : isCritic ? "CHALLENGE" : "RESPONSE";
+  const ts = new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   if (collapsed) {
     return (
       <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
         style={{
-          marginBottom:8, position:"relative",
+          marginBottom: 8, position: "relative",
           marginLeft: isCritic ? 56 : 0,
-          background:bg, padding:"8px 14px",
-          ...borders, opacity:0.65,
+          background: a.color + "0a", padding: "8px 14px",
+          borderLeft: `3px solid ${a.color}`,
+          opacity: 0.65,
         }}>
         <MinBtn collapsed={true} onClick={() => onToggleCollapse(msg.id)} rightOffset={6} />
-        <div style={{ display:"flex", alignItems:"center", gap:8, paddingRight:32 }}>
-          <span style={{ fontSize:13, color:a.color }}>{a.icon}</span>
-          <span style={{ fontFamily:T.mono, fontSize:9, color:a.color }}>@{a.id}</span>
-          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>
-            {isResearch?"RESEARCH":isWriter?"DRAFT":isEditor?"EDIT":isCritic?"CHALLENGE":""}
-          </span>
-          <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto" }}>minimized</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingRight: 32 }}>
+          <span style={{ fontSize: 13, color: a.color }}>{a.icon}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 9, color: a.color, letterSpacing: "0.04em" }}>@{a.id}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta, letterSpacing: "0.1em" }}>{voiceLabel}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta, marginLeft: "auto" }}>minimized</span>
         </div>
       </div>
     );
   }
 
+  // ── WRITER — manuscript: serif italic, generous leading ──────────────────
+  if (isWriter) {
+    return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{ marginBottom: 28, position: "relative" }}>
+        {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+        {hov && <CopyBtn text={msg.content} />}
+        {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 14, color: a.color }}>{a.icon}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 9.5, color: a.color, letterSpacing: "0.04em" }}>@{a.id}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta, letterSpacing: "0.1em" }}>DRAFT</span>
+          <div style={{ flex: 1, height: 1, background: a.color + "22" }} />
+          {hov && <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta }}>{ts}</span>}
+        </div>
+        <div style={{
+          position: "relative",
+          padding: "22px 28px 22px 36px",
+          borderLeft: `2px solid ${a.color}`,
+          background: a.color + "07",
+        }}>
+          {/* Manuscript margin mark */}
+          <div style={{ position: "absolute", left: 12, top: 22, fontFamily: T.mono, fontSize: 8, color: a.color + "55", letterSpacing: "0.1em", writingMode: "vertical-rl", transform: "rotate(180deg)" }}>DRAFT</div>
+          <div style={{
+            fontFamily: T.italic, fontSize: 17, lineHeight: 1.9,
+            color: T.text, fontStyle: "italic", whiteSpace: "pre-wrap",
+            letterSpacing: "-0.005em",
+          }}>{msg.content}</div>
+        </div>
+        <ReactBadges active={reactions} />
+        {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
+      </div>
+    );
+  }
+
+  // ── RESEARCHER — research note: monospace, source rail ──────────────────
+  if (isResearch) {
+    return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{ marginBottom: 28, position: "relative" }}>
+        {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+        {hov && <CopyBtn text={msg.content} />}
+        {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 14, color: a.color }}>{a.icon}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 9.5, color: a.color, letterSpacing: "0.04em" }}>@{a.id}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta, letterSpacing: "0.1em" }}>RESEARCH NOTE</span>
+          <div style={{ flex: 1, height: 1, background: a.color + "22" }} />
+          {hov && <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta }}>{ts}</span>}
+        </div>
+        <div style={{
+          border: `1px solid ${a.color}33`,
+          borderLeft: `3px solid ${a.color}`,
+          background: a.color + "07",
+          borderRadius: "0 6px 6px 0",
+          padding: "14px 18px",
+        }}>
+          <div style={{
+            fontFamily: T.mono, fontSize: 13, lineHeight: 1.6,
+            color: T.body, whiteSpace: "pre-wrap",
+          }}>{msg.content}</div>
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${a.color}22`, fontFamily: T.mono, fontSize: 9, color: a.color + "88", letterSpacing: "0.1em" }}>
+            SOURCES CITED · FACT-CHECKED
+          </div>
+        </div>
+        <ReactBadges active={reactions} />
+        {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
+      </div>
+    );
+  }
+
+  // ── EDITOR — redline: before/after track-changes treatment ──────────────
+  if (isEditor) {
+    // Try to detect before/after blocks in content; else render as plain with edit styling
+    const lines = msg.content.split("\n");
+    const hasBefore = lines.some(l => /^(before:|original:)/i.test(l.trim()));
+    return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{ marginBottom: 28, position: "relative" }}>
+        {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+        {hov && <CopyBtn text={msg.content} />}
+        {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 14, color: a.color }}>{a.icon}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 9.5, color: a.color, letterSpacing: "0.04em" }}>@{a.id}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta, letterSpacing: "0.1em" }}>REVISION</span>
+          <div style={{ flex: 1, height: 1, background: a.color + "22" }} />
+          {hov && <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta }}>{ts}</span>}
+        </div>
+        <div style={{
+          border: `1px solid ${a.color}30`,
+          borderLeft: `3px solid ${a.color}`,
+          background: a.color + "07",
+          borderRadius: "0 6px 6px 0",
+          padding: "14px 18px",
+        }}>
+          <div style={{
+            fontFamily: T.sans, fontSize: 14, lineHeight: 1.75,
+            color: T.text, whiteSpace: "pre-wrap",
+          }}>{msg.content}</div>
+        </div>
+        <ReactBadges active={reactions} />
+        {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
+      </div>
+    );
+  }
+
+  // ── CRITIC — dissent: dashed border, indented, numbered feel ────────────
+  if (isCritic) {
+    return (
+      <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{ marginBottom: 28, position: "relative", marginLeft: 56 }}>
+        {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
+        {hov && <CopyBtn text={msg.content} />}
+        {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 14, color: a.color }}>{a.icon}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 9.5, color: a.color, letterSpacing: "0.04em" }}>@{a.id}</span>
+          <span style={{ fontFamily: T.mono, fontSize: 8, color: a.color + "88", letterSpacing: "0.1em" }}>CHALLENGE</span>
+          <span style={{ fontFamily: T.mono, fontSize: 8, color: a.color + "66", marginLeft: 4 }}>dissent</span>
+          <div style={{ flex: 1, height: 1, background: a.color + "22" }} />
+          {hov && <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta }}>{ts}</span>}
+        </div>
+        <div style={{
+          border: `1.5px dashed ${a.color}66`,
+          borderLeft: `3px solid ${a.color}`,
+          background: a.color + "09",
+          borderRadius: "0 4px 4px 0",
+          padding: "14px 20px",
+        }}>
+          <div style={{
+            fontFamily: T.sans, fontSize: 14, lineHeight: 1.75,
+            color: T.body, whiteSpace: "pre-wrap",
+          }}>{msg.content}</div>
+        </div>
+        <ReactBadges active={reactions} />
+        {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
+      </div>
+    );
+  }
+
+  // ── DEFAULT — any other agent ────────────────────────────────────────────
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        marginBottom:28, position:"relative",
-        marginLeft: isCritic ? 56 : 0,
-        background:bg, padding:"14px 18px",
-        ...borders,
-      }}>
+      style={{ marginBottom: 28, position: "relative" }}>
       {hov && <DelBtn onClick={() => onDelete(msg.id)} />}
       {hov && <CopyBtn text={msg.content} />}
       {hov && <MinBtn collapsed={false} onClick={() => onToggleCollapse(msg.id)} />}
-      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-        <span style={{ fontSize:15, color:a.color }}>{a.icon}</span>
-        <span style={{ fontFamily:T.mono, fontSize:9.5, color:a.color, letterSpacing:"0.04em" }}>@{a.id}</span>
-        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:4 }}>
-          {isResearch?"RESEARCH":isWriter?"DRAFT":isEditor?"EDIT":isCritic?"CHALLENGE":""}
-        </span>
-        {isCritic && <span style={{ fontFamily:T.mono, fontSize:8, color:"#ff3d3d88", marginLeft:"auto", paddingRight:56 }}>dissent</span>}
-        {hov && <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginLeft:"auto", paddingRight:56 }}>
-          {new Date(msg.created_at).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}
-        </span>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 14, color: a.color }}>{a.icon}</span>
+        <span style={{ fontFamily: T.mono, fontSize: 9.5, color: a.color, letterSpacing: "0.04em" }}>@{a.id}</span>
+        <div style={{ flex: 1, height: 1, background: a.color + "22" }} />
+        {hov && <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta }}>{ts}</span>}
       </div>
       <div style={{
-        fontFamily:T.sans,
-        fontSize: isWriter ? 16 : 14,
-        lineHeight: isWriter ? 1.9 : 1.7,
-        fontStyle: isWriter ? "italic" : "normal",
-        color:T.text, whiteSpace:"pre-wrap",
+        borderLeft: `3px solid ${a.color}`,
+        background: a.color + "0a",
+        padding: "14px 18px",
+        fontFamily: T.sans, fontSize: 14, lineHeight: 1.75,
+        color: T.body, whiteSpace: "pre-wrap",
       }}>{msg.content}</div>
-      {isResearch && (
-        <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginTop:10, borderTop:`1px solid ${T.bdr}`, paddingTop:6 }}>
-          sources cited · fact-checked
-        </div>
-      )}
-      {isWriter && (
-        <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, marginTop:10 }}>draft</div>
-      )}
       <ReactBadges active={reactions} />
       {hov && <ReactBar msgId={msg.id} active={reactions} onReact={onReact} />}
     </div>
@@ -411,7 +532,7 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
       </div>
 
       {/* Main body — last line separated out */}
-      <div style={{ fontFamily:T.sans, fontSize:16, lineHeight:1.95, color:"#e8e8e8", maxWidth:640, whiteSpace:"pre-wrap" }}>
+      <div style={{ fontFamily: T.serif, fontSize: 20, lineHeight: 1.65, color: T.text, maxWidth: 640, whiteSpace: "pre-wrap", letterSpacing: "-0.005em" }}>
         {bodyContent}
       </div>
 
@@ -466,11 +587,11 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
           disabled={!canSave}
           title={!canSave ? "5 directions saved" : "Pin this synthesis"}
           style={{
-            background: saved ? "#c030ff22" : "none",
-            border: `1px solid ${saved ? "#c030ff88" : T.bdr2}`,
+            background: saved ? "#c89cff22" : "none",
+            border: `1px solid ${saved ? "#c89cff88" : T.bdr2}`,
             borderRadius:4, padding:"5px 14px",
             fontFamily:T.mono, fontSize:9,
-            color: saved ? "#c030ff" : T.sub,
+            color: saved ? "#c89cff" : T.sub,
             cursor: canSave ? "pointer" : "not-allowed",
             opacity: canSave ? 1 : 0.35,
             transition:"all 0.2s",
@@ -510,37 +631,40 @@ function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, o
   return null;
 }
 
-// Directions panel — pinned above chat when directions exist
+// Directions panel — pinned strip above chat (horizontal, like the design artboard)
 function DirectionsPanel({ directions, onRemove }: { directions: string[]; onRemove: (i: number) => void }) {
   if (!directions.length) return null;
+  const dirColor = "#c89cff";
   return (
     <div style={{
-      background:"#0d0d0d", borderBottom:"1px solid #1e1e1e",
-      padding:"12px 24px 16px", flexShrink:0,
+      background: T.bg2, borderBottom: `1px solid ${T.bdr}`,
+      padding: "9px 32px 8px", flexShrink: 0,
+      display: "flex", alignItems: "center", gap: 10,
     }}>
-      <div style={{ maxWidth:720, margin:"0 auto" }}>
-        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:8.5, color:"#555", letterSpacing:"0.16em", marginBottom:10 }}>
-          DIRECTIONS
-        </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-          {directions.map((d, i) => (
-            <div key={i} style={{
-              position:"relative",
-              borderLeft:"3px solid #c030ff",
-              background:"#c030ff08",
-              padding:"9px 36px 9px 14px",
-            }}>
-              <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"#c030ff66", marginRight:8 }}>{i + 1}.</span>
-              <span style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:13, color:"#dcdcdc", lineHeight:1.6 }}>{d}</span>
-              <button onClick={() => onRemove(i)} style={{
-                position:"absolute", top:6, right:8,
-                background:"none", border:"none", cursor:"pointer",
-                fontFamily:"'IBM Plex Mono',monospace", fontSize:13, color:"#7a7a7a", lineHeight:1,
-              }}>×</button>
-            </div>
-          ))}
-        </div>
+      <span style={{ fontFamily: T.mono, fontSize: 8, color: dirColor, letterSpacing: "0.14em", whiteSpace: "nowrap" }}>★ DIRECTIONS</span>
+      <div style={{ width: 1, height: 14, background: dirColor + "33" }} />
+      <div style={{ display: "flex", gap: 6, flex: 1, overflow: "hidden" }}>
+        {directions.map((d, i) => (
+          <div key={i} style={{
+            display: "flex", alignItems: "center", gap: 5,
+            padding: "4px 8px 4px 9px",
+            background: dirColor + "0f",
+            border: `1px solid ${dirColor}33`,
+            borderRadius: 4,
+            fontSize: 11, color: T.body,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            flex: "0 1 auto", maxWidth: 280,
+          }}>
+            <span style={{ color: dirColor, fontSize: 10, flexShrink: 0 }}>◎</span>
+            <span style={{ fontFamily: T.italic, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis" }}>{d}</span>
+            <button onClick={() => onRemove(i)} style={{
+              background: "none", border: "none", cursor: "pointer",
+              color: T.meta, fontSize: 12, lineHeight: 1, padding: "0 0 0 4px", flexShrink: 0,
+            }}>×</button>
+          </div>
+        ))}
       </div>
+      <span style={{ fontFamily: T.mono, fontSize: 8, color: T.meta, letterSpacing: "0.06em", whiteSpace: "nowrap" }}>injected into every call</span>
     </div>
   );
 }
@@ -785,8 +909,8 @@ function ClearConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel
             padding:"8px 18px", fontFamily:T.sans, fontSize:13, color:T.sub, cursor:"pointer",
           }}>Cancel</button>
           <button onClick={onConfirm} style={{
-            background:"#ff3d3d18", border:"1px solid #ff3d3d55", borderRadius:6,
-            padding:"8px 18px", fontFamily:T.sans, fontSize:13, color:"#ff3d3d", cursor:"pointer",
+            background:"#ff5a5a18", border:"1px solid #ff5a5a55", borderRadius:6,
+            padding:"8px 18px", fontFamily:T.sans, fontSize:13, color:"#ff5a5a", cursor:"pointer",
           }}>Clear chat</button>
         </div>
       </div>
@@ -1680,7 +1804,7 @@ ${directorSynthesis}`,
       fontFamily:T.sans, display:"flex", flexDirection:"column", overflow:"hidden",
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&family=DM+Serif+Display:ital@0;1&family=Source+Serif+Pro:ital,wght@0,400;0,600;1,400;1,600&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: ${T.bg}; }
@@ -1726,9 +1850,9 @@ ${directorSynthesis}`,
               )}
             </div>
             {tone && (
-              <div style={{ display:"flex", alignItems:"center", gap:5, padding:"2px 8px", background:"#1a0530", border:"1px solid #c030ff30", borderRadius:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:5, padding:"2px 8px", background:"#1e1030", border:"1px solid #c89cff30", borderRadius:12 }}>
                 <span style={{ fontSize:10 }}>🎵</span>
-                <span style={{ fontSize:9, color:"#c030ff", fontFamily:T.mono }}>{tone.trackName}</span>
+                <span style={{ fontSize:9, color:"#c89cff", fontFamily:T.mono }}>{tone.trackName}</span>
               </div>
             )}
             {[
@@ -2002,9 +2126,9 @@ ${directorSynthesis}`,
           <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:`linear-gradient(transparent, ${T.bg} 36%)`, padding:"28px 24px 20px" }}>
             <div style={{ maxWidth:720, margin:"0 auto" }}>
           {rateLimitError && (
-            <div style={{ marginBottom:10, padding:"8px 12px", background:"#ff3d3d18", border:"1px solid #ff3d3d44", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-              <span style={{ fontFamily:T.mono, fontSize:10, color:"#ff3d3d" }}>⚡ {rateLimitError}</span>
-              <button onClick={() => setRateLimitError(null)} style={{ background:"none", border:"none", color:"#ff3d3d", cursor:"pointer", fontSize:14 }}>×</button>
+            <div style={{ marginBottom:10, padding:"8px 12px", background:"#ff5a5a18", border:"1px solid #ff5a5a44", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <span style={{ fontFamily:T.mono, fontSize:10, color:"#ff5a5a" }}>⚡ {rateLimitError}</span>
+              <button onClick={() => setRateLimitError(null)} style={{ background:"none", border:"none", color:"#ff5a5a", cursor:"pointer", fontSize:14 }}>×</button>
             </div>
           )}
           {/* Token counter + length toggle */}
@@ -2230,7 +2354,7 @@ ${directorSynthesis}`,
                       <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em" }}>
                         INSPIRATIONS
                       </span>
-                      <span style={{ fontFamily:T.mono, fontSize:8, color: (agentInspirations[a.id]?.length ?? 0) >= 13 ? "#ff3d3d" : "#333" }}>
+                      <span style={{ fontFamily:T.mono, fontSize:8, color: (agentInspirations[a.id]?.length ?? 0) >= 13 ? "#ff5a5a" : "#333" }}>
                         {agentInspirations[a.id]?.length ?? 0}/13
                       </span>
                     </div>
@@ -2406,17 +2530,17 @@ ${directorSynthesis}`,
         <FeatureModal title="SECTION TONE — SPOTIFY" onClose={() => setModal(null)}>
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             {tone && (
-              <div style={{ padding:"10px 14px", background:"#1a0530", border:"1px solid #c030ff30", borderRadius:8 }}>
-                <div style={{ fontSize:13, color:"#c030ff", marginBottom:4 }}>🎵 {tone.trackName} — {tone.artistName}</div>
+              <div style={{ padding:"10px 14px", background:"#1e1030", border:"1px solid #c89cff30", borderRadius:8 }}>
+                <div style={{ fontSize:13, color:"#c89cff", marginBottom:4 }}>🎵 {tone.trackName} — {tone.artistName}</div>
                 <div style={{ fontSize:11, color:T.meta, marginBottom:8 }}>{tone.descriptor}</div>
                 <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                  {tone.moodTags.map((t: string) => <span key={t} style={{ fontSize:9, color:"#c030ff80", border:"1px solid #c030ff30", padding:"1px 6px", borderRadius:10, fontFamily:T.mono }}>{t}</span>)}
+                  {tone.moodTags.map((t: string) => <span key={t} style={{ fontSize:9, color:"#c89cff80", border:"1px solid #c89cff30", padding:"1px 6px", borderRadius:10, fontFamily:T.mono }}>{t}</span>)}
                 </div>
-                <button onClick={clearTone} style={{ marginTop:10, background:"none", border:"1px solid #2a0808", color:"#ff3d3d", padding:"4px 10px", borderRadius:5, fontSize:11, cursor:"pointer", fontFamily:T.mono }}>Clear tone</button>
+                <button onClick={clearTone} style={{ marginTop:10, background:"none", border:"1px solid #2a0808", color:"#ff5a5a", padding:"4px 10px", borderRadius:5, fontSize:11, cursor:"pointer", fontFamily:T.mono }}>Clear tone</button>
               </div>
             )}
             <input value={spotifyUrl} onChange={e => { setSpotifyUrl(e.target.value); setToneError(""); }} placeholder="https://open.spotify.com/track/…" style={inputStyle} />
-            {toneError && <p style={{ fontSize:11, color:"#ff3d3d" }}>{toneError}</p>}
+            {toneError && <p style={{ fontSize:11, color:"#ff5a5a" }}>{toneError}</p>}
             <button onClick={applyTone} disabled={loadingTone || !spotifyUrl.trim()} style={{ alignSelf:"flex-start", padding:"7px 14px", borderRadius:6, background:"#0d2240", border:"1px solid #4da8ff44", color:"#4da8ff", fontSize:12, cursor:"pointer", fontFamily:T.mono }}>
               {loadingTone ? "Analysing…" : "Set tone"}
             </button>
