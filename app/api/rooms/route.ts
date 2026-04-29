@@ -69,6 +69,9 @@ export async function POST(req: Request) {
   const supabase = createSupabaseServiceClient();
   const inviteCode = nanoid(8);
 
+  const VALID_ROOM_TYPES = ["writers", "jobhunt", "career", "publishing"];
+  const safeRoomType = VALID_ROOM_TYPES.includes(room_type) ? room_type : "writers";
+
   const { data: room, error } = await supabase
     .from("rooms")
     .insert({
@@ -77,6 +80,7 @@ export async function POST(req: Request) {
       owner_id: actor.userId,
       is_private: !!is_private,
       invite_code: inviteCode,
+      room_type: safeRoomType,
     })
     .select()
     .single();
