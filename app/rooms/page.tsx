@@ -71,6 +71,16 @@ function RoomCard({ room, onOpen, onDelete, isOwner, deleting, confirmDeleteId, 
   const isConfirming = confirmDeleteId === room.id;
   const cfg = ROOM_TYPE_CONFIG[(room.room_type as RoomType) ?? "writers"];
 
+  // Check if room has unread activity (new messages since last visit)
+  const hasUnread = (() => {
+    if (!room.last_message_at) return false;
+    try {
+      const lastSeen = localStorage.getItem(`wr-last-seen-${room.id}`);
+      if (!lastSeen) return false;
+      return new Date(room.last_message_at).getTime() > Number(lastSeen);
+    } catch { return false; }
+  })();
+
   return (
     <div
       onMouseEnter={() => setHov(true)}
@@ -104,7 +114,10 @@ function RoomCard({ room, onOpen, onDelete, isOwner, deleting, confirmDeleteId, 
           )}
           <div style={{ display: "flex", gap: 10 }}>
             {room.last_message_at && (
-              <span style={{ fontFamily: T.mono, fontSize: 10, color: "#444" }}>{timeAgo(room.last_message_at)}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, color: hasUnread ? "#f5b041" : "#444", display: "flex", alignItems: "center", gap: 4 }}>
+                {hasUnread && <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#f5b041", display: "inline-block", flexShrink: 0 }} />}
+                {timeAgo(room.last_message_at)}
+              </span>
             )}
             {(room.message_count ?? 0) > 0 && (
               <span style={{ fontFamily: T.mono, fontSize: 10, color: "#444" }}>{room.message_count} messages</span>

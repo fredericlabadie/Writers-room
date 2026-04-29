@@ -613,6 +613,97 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
   );
 }
 
+// ── Return brief — "while you were away" panel shown at top of chat ──────────
+function ReturnBrief({ brief, onDismiss, onCatchUp }: {
+  brief: { directorText: string; events: any[]; awayStr: string; onYouCount: number };
+  onDismiss: () => void;
+  onCatchUp: () => void;
+}) {
+  const dirColor = "#c89cff";
+  const AGENT_COLORS_LOCAL: Record<string, string> = {
+    researcher:"#0fe898", intel:"#0fe898", analyst:"#0fe898", reader:"#0fe898",
+    writer:"#4da8ff", drafter:"#4da8ff", editor:"#ffca00", critic:"#ff5a5a", director:"#c89cff",
+  };
+  const AGENT_ICONS_LOCAL: Record<string, string> = {
+    researcher:"◈", intel:"◐", analyst:"◑", reader:"◫",
+    writer:"✦", drafter:"◧", editor:"⌘", critic:"⚡", director:"◎",
+  };
+
+  return (
+    <div style={{ margin: "0 0 24px", background: dirColor + "0a", border: `1px solid ${dirColor}33`, borderTop: `2px solid ${dirColor}`, borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ padding: "12px 18px", borderBottom: `1px solid ${dirColor}22`, display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ color: dirColor, fontSize: 13 }}>◎</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: dirColor, letterSpacing: "0.12em" }}>
+          WHILE YOU WERE AWAY · {brief.awayStr.toUpperCase()}
+        </span>
+        <div style={{ flex: 1 }} />
+        {brief.onYouCount > 0 && (
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: "#f5b041", letterSpacing: "0.1em" }}>
+            {brief.onYouCount} ON YOU
+          </span>
+        )}
+        <button onClick={onDismiss} style={{ background: "none", border: "none", cursor: "pointer", color: "#5a5a62", fontSize: 16, lineHeight: 1, padding: "0 4px" }}>×</button>
+      </div>
+
+      <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Director's narrative */}
+        {brief.directorText && (
+          <div style={{ borderLeft: `2px solid ${dirColor}55`, paddingLeft: 14, fontFamily: "'DM Serif Display', serif", fontSize: 14, lineHeight: 1.6, color: "#e5e5ea" }}>
+            {brief.directorText}
+          </div>
+        )}
+
+        {/* Timeline */}
+        {brief.events.length > 0 && (
+          <div style={{ position: "relative", paddingLeft: 18 }}>
+            <div style={{ position: "absolute", left: 5, top: 6, bottom: 6, width: 1, background: `repeating-linear-gradient(180deg, #2e2e36 0 4px, transparent 4px 8px)` }} />
+            {brief.events.map((ev, i) => {
+              const color = ev.role === "user" ? "#5cdaff" : (AGENT_COLORS_LOCAL[ev.persona ?? ""] ?? "#8a8a92");
+              const icon = ev.role === "user" ? "◍" : (AGENT_ICONS_LOCAL[ev.persona ?? ""] ?? "◉");
+              const who = ev.role === "user" ? (ev.user_name ?? "You") : `@${ev.persona}`;
+              const isOnYou = ev.onYou;
+              return (
+                <div key={i} style={{ position: "relative", paddingBottom: i < brief.events.length - 1 ? 10 : 0 }}>
+                  <span style={{ position: "absolute", left: -18, top: 5, width: 9, height: 9, borderRadius: "50%", background: isOnYou ? color : "#0e0e11", border: `1.5px solid ${color}`, boxShadow: isOnYou ? `0 0 6px ${color}66` : "none" }} />
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: "#5a5a62", minWidth: 60 }}>
+                      {new Date(ev.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color }}>{who}</span>
+                    <span style={{ fontFamily: "'Source Serif Pro', serif", fontSize: 12, color: "#b8b8c0", lineHeight: 1.4 }}>{ev.what}</span>
+                    {ev.tag && (
+                      <span style={{ marginLeft: "auto", padding: "1px 6px", background: color + "18", border: `1px solid ${color}44`, borderRadius: 2, fontFamily: "'IBM Plex Mono', monospace", fontSize: 8, color, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{ev.tag}</span>
+                    )}
+                  </div>
+                  {ev.detail && (
+                    <div style={{ marginLeft: 68, fontFamily: "'Source Serif Pro', serif", fontStyle: "italic", fontSize: 11, lineHeight: 1.4, color: "#8a8a92", borderLeft: `1px solid ${color}33`, paddingLeft: 8, marginTop: 3 }}>{ev.detail}</div>
+                  )}
+                  {isOnYou && (
+                    <div style={{ marginLeft: 68, marginTop: 3 }}>
+                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 8.5, color: "#f5b041", letterSpacing: "0.1em" }}>↳ ON YOU</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* CTAs */}
+        <div style={{ display: "flex", gap: 6, paddingTop: 10, borderTop: `1px solid ${dirColor}22` }}>
+          <button onClick={onCatchUp} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#0a0a0c", background: dirColor, border: "none", borderRadius: 4, padding: "6px 14px", cursor: "pointer", fontWeight: 600, letterSpacing: "0.04em" }}>
+            Catch me up ↓
+          </button>
+          <button onClick={onDismiss} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#8a8a92", background: "transparent", border: "1px solid #2e2e36", borderRadius: 4, padding: "6px 14px", cursor: "pointer" }}>
+            Mark all as read
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Director auto-intervention note — rendered anchored below a message ──────
 function InterventionNote({ intervention, onDismiss, onAcceptPin, onSaveDirection }: {
   intervention: { id: string; type: string; color: string; glyph: string; kind: string; text: string; dismissed: boolean };
@@ -1182,6 +1273,16 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
   const [agentInspirations, setAgentInspirations] = useState<Record<string, {name:string;weight:number}[]>>({});
   const [selectedRoleAgent, setSelectedRoleAgent] = useState<string>("");
+
+  // ── Async return brief ────────────────────────────────────────────────────
+  interface ReturnBriefData {
+    directorText: string;
+    events: Array<{ role: string; persona?: string; user_name?: string; content: string; created_at: string; what: string; detail?: string; tag?: string; onYou: boolean }>;
+    awayStr: string;
+    onYouCount: number;
+  }
+  const [returnBrief, setReturnBrief] = useState<ReturnBriefData | null>(null);
+  const firstUnseenRef = useRef<string | null>(null);
   const [inspirationInputs, setInspirationInputs] = useState<Record<string, string>>({});
 
   // Feature state
@@ -1243,6 +1344,78 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
           msgs.forEach((m: Message) => seenIds.current.add(m.id));
           setMessages(msgs);
           setScreen("chat");
+
+          // ── Async return brief ──────────────────────────────────────────
+          // Show a "while you were away" brief if returning after 2+ hours
+          const lsKey = `wr-last-seen-${room.id}`;
+          const lastSeenRaw = localStorage.getItem(lsKey);
+          const now = Date.now();
+          const TWO_HOURS = 2 * 60 * 60 * 1000;
+
+          if (lastSeenRaw) {
+            const lastSeen = Number(lastSeenRaw);
+            const awayMs = now - lastSeen;
+
+            if (awayMs > TWO_HOURS) {
+              const unseenMsgs = msgs.filter((m: Message) => new Date(m.created_at).getTime() > lastSeen);
+              if (unseenMsgs.length > 0) {
+                // Mark first unseen for "catch me up" scroll
+                firstUnseenRef.current = unseenMsgs[0].id;
+
+                // Build timeline events
+                const AGENT_WHAT: Record<string, string> = {
+                  writer: "produced a draft", drafter: "produced a draft",
+                  researcher: "surfaced research", editor: "left revisions",
+                  critic: "flagged objections", director: "synthesized the room",
+                  analyst: "ran analysis", intel: "gathered intel",
+                  scheduler: "proposed events",
+                };
+                const events = unseenMsgs.slice(0, 12).map((m: Message) => {
+                  const isAgent = m.role === "agent";
+                  const persona = m.persona ?? "";
+                  const snippet = m.content.slice(0, 100).replace(/\n/g, " ");
+                  const endsWithQuestion = m.content.trimEnd().endsWith("?");
+                  const hasProposal = persona === "scheduler" || (isAgent && m.content.toLowerCase().includes("propose"));
+                  return {
+                    role: m.role,
+                    persona,
+                    user_name: (m as any).user_name,
+                    content: m.content,
+                    created_at: m.created_at,
+                    what: isAgent ? (AGENT_WHAT[persona] ?? "responded") : "sent a message",
+                    detail: isAgent ? `"${snippet}${m.content.length > 100 ? "…" : ""}"` : undefined,
+                    tag: persona === "director" ? "SYNTHESIS" : persona === "writer" ? "DRAFT" : persona === "critic" ? "CHALLENGE" : persona === "editor" ? "REVISION" : persona === "researcher" ? "RESEARCH" : undefined,
+                    onYou: isAgent && (endsWithQuestion || hasProposal),
+                  };
+                });
+
+                const onYouCount = events.filter((e: any) => e.onYou).length;
+
+                // Format away duration
+                const awayH = Math.floor(awayMs / 3600000);
+                const awayM = Math.floor((awayMs % 3600000) / 60000);
+                const awayStr = awayH > 0 ? `${awayH}h ${awayM}m` : `${awayM}m`;
+
+                // Generate Director's narrative
+                fetch("/api/director/brief", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ messages: unseenMsgs.slice(0, 20), awayDuration: awayStr }),
+                })
+                  .then(r => r.ok ? r.json() : { text: "" })
+                  .then(data => {
+                    setReturnBrief({ directorText: data.text ?? "", events, awayStr, onYouCount });
+                  })
+                  .catch(() => {
+                    // Show brief without Director text if API fails
+                    setReturnBrief({ directorText: "", events, awayStr, onYouCount });
+                  });
+              }
+            }
+          }
+
+          // Update last-seen timestamp
+          localStorage.setItem(lsKey, String(now));
         }
       });
 
@@ -1727,6 +1900,8 @@ ${directorSynthesis}`,
     const userMsg: Message = { ...saved, role: "user", user_name: currentUser.name, user_avatar: currentUser.image };
     setMessages(prev => [...prev, userMsg]);
     userTurnCount.current += 1;
+    setReturnBrief(null); // dismiss brief on first user interaction
+    try { localStorage.setItem(`wr-last-seen-${room.id}`, String(Date.now())); } catch {}
     setScreen("chat");
 
     const { mode, calls } = parseCallSyntax(text);
@@ -2416,13 +2591,32 @@ ${directorSynthesis}`,
             }}
             style={{ flex:1, overflowY:"auto", padding:"24px 24px 120px" }}>
             <div style={{ maxWidth:720, margin:"0 auto" }}>
+              {/* ── Return brief — shown at top when returning after 2h+ ── */}
+              {returnBrief && (
+                <ReturnBrief
+                  brief={returnBrief}
+                  onDismiss={() => {
+                    setReturnBrief(null);
+                    try { localStorage.setItem(`wr-last-seen-${room.id}`, String(Date.now())); } catch {}
+                  }}
+                  onCatchUp={() => {
+                    setReturnBrief(null);
+                    try { localStorage.setItem(`wr-last-seen-${room.id}`, String(Date.now())); } catch {}
+                    // Scroll to first unseen message
+                    if (firstUnseenRef.current) {
+                      const el = document.getElementById(`msg-${firstUnseenRef.current}`);
+                      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }
+                  }}
+                />
+              )}
               {messages.length === 0 && (
                 <div style={{ textAlign:"center", marginTop:80, fontFamily:T.mono, fontSize:11, color:T.meta, letterSpacing:"0.12em" }}>
                   CONVERSATION CLEARED — START AGAIN BELOW
                 </div>
               )}
               {messages.map(msg => (
-                <div key={msg.id} className="msg-in">
+                <div key={msg.id} id={`msg-${msg.id}`} className="msg-in">
                   <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} reactions={messageReactions[msg.id] ?? []} onReact={toggleReaction} onCallChain={callDirectorChain} agents={AGENTS} collapsed={collapsedMsgs.has(msg.id)} onToggleCollapse={toggleCollapse} />
                   {interventions
                     .filter(i => i.triggerMsgId === msg.id && !i.dismissed)
