@@ -2657,7 +2657,7 @@ ${directorSynthesis}`,
       }]);
       setLastInterventionTurn(turn);
     } catch { /* silent fail — interventions are optional */ }
-  }, [lastInterventionTurn, messages]);
+  }, [lastInterventionTurn, messages.length]);
 
   // Parse ```schedule JSON blocks from scheduler agent responses
   const parseScheduleBlocks = (text: string, msgId: string) => {

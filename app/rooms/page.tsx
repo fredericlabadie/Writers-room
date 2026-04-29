@@ -500,7 +500,7 @@ function FolderTag({ label, value }: { label: string; value: string }) {
 
 // ── All rooms view ────────────────────────────────────────────────────────────
 
-function AllRoomsView({ rooms, onOpen, onRefresh, allRoomsTotal }: { rooms: RoomEntry[]; onOpen: (id: string) => void; onRefresh: () => void; allRoomsTotal: number }) {
+function AllRoomsView({ rooms, allRooms, onOpen, onRefresh, allRoomsTotal }: { rooms: RoomEntry[]; allRooms: RoomEntry[]; onOpen: (id: string) => void; onRefresh: () => void; allRoomsTotal: number }) {
   const router = useRouter();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
@@ -526,7 +526,7 @@ function AllRoomsView({ rooms, onOpen, onRefresh, allRoomsTotal }: { rooms: Room
   };
 
   const q = searchQuery.trim().toLowerCase();
-  const filtered = q ? rooms.filter(e => e.rooms.name.toLowerCase().includes(q) || (e.rooms.description ?? "").toLowerCase().includes(q)) : rooms;
+  const filtered = q ? allRooms.filter(e => e.rooms.name.toLowerCase().includes(q) || (e.rooms.description ?? "").toLowerCase().includes(q)) : rooms;
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px 40px" }}>
@@ -586,18 +586,26 @@ function AllRoomsView({ rooms, onOpen, onRefresh, allRoomsTotal }: { rooms: Room
           </p>
         </div>
       ) : (
-        filtered.map(entry => (
-          <RoomCard
-            key={entry.rooms.id}
-            room={entry.rooms}
-            onOpen={() => onOpen(entry.rooms.id)}
-            onDelete={() => deleteRoom(entry.rooms.id)}
-            isOwner={entry.role === "owner"}
-            deleting={deleting === entry.rooms.id}
-            confirmDeleteId={confirmDeleteId}
-            setConfirmDeleteId={setConfirmDeleteId}
-          />
-        ))
+        <>
+          {filtered.map(entry => (
+            <RoomCard
+              key={entry.rooms.id}
+              room={entry.rooms}
+              onOpen={() => onOpen(entry.rooms.id)}
+              onDelete={() => deleteRoom(entry.rooms.id)}
+              isOwner={entry.role === "owner"}
+              deleting={deleting === entry.rooms.id}
+              confirmDeleteId={confirmDeleteId}
+              setConfirmDeleteId={setConfirmDeleteId}
+            />
+          ))}
+          {/* Mobile swipe hint — only shown on touch devices with owned rooms */}
+          {typeof window !== "undefined" && window.innerWidth < 700 && filtered.some(e => e.role === "owner") && !searchQuery && (
+            <p style={{ textAlign: "center", fontFamily: T.mono, fontSize: 9, color: "#333", marginTop: 16, letterSpacing: "0.08em" }}>
+              swipe left to delete
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -618,6 +626,7 @@ export default function RoomsPage() {
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [roomsVersion, setRoomsVersion] = useState(0); // bump to trigger re-fetch
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     fetchAll();
@@ -778,7 +787,7 @@ export default function RoomsPage() {
 
         {/* ── Main content ── */}
         {selectedView === "all" ? (
-          <AllRoomsView rooms={unfolderedRooms} onOpen={openRoom} onRefresh={() => setRoomsVersion(v => v + 1)} allRoomsTotal={rooms.length} />
+          <AllRoomsView rooms={unfolderedRooms} allRooms={rooms} onOpen={openRoom} onRefresh={() => setRoomsVersion(v => v + 1)} allRoomsTotal={rooms.length} />
         ) : (
           <FolderView
             key={selectedView}
