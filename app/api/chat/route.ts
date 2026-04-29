@@ -231,9 +231,45 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n\n");
 
+  // ── Folder lore injection ────────────────────────────────────────────────
+  // If this room belongs to a folder, inject folder lore + folder pins
+  // into the system prompt so agents have full project context.
+  let folderLoreBlock = "";
+  const { data: roomRow } = await supabase
+    .from("rooms")
+    .select("folder_id")
+    .eq("id", roomId)
+    .single();
+
+  if (roomRow?.folder_id) {
+    const [{ data: folder }, { data: folderPins }] = await Promise.all([
+      supabase.from("folders").select("name, about, genre, reader, tone").eq("id", roomRow.folder_id).single(),
+      supabase.from("folder_pins").select("text").eq("folder_id", roomRow.folder_id).order("created_at", { ascending: true }),
+    ]);
+
+    if (folder) {
+      const loreLines = [
+        `PROJECT FOLDER: ${folder.name}`,
+        folder.about   ? `About: ${folder.about}` : "",
+        folder.genre   ? `Genre: ${folder.genre}` : "",
+        folder.reader  ? `Target reader / comp titles: ${folder.reader}` : "",
+        folder.tone    ? `Tone guidance: ${folder.tone}` : "",
+      ].filter(Boolean);
+
+      const pinLines = (folderPins ?? []).map((p: any, i: number) => `${i + 1}. ${p.text}`);
+
+      folderLoreBlock = [
+        "--- FOLDER LORE (inherited by all rooms in this project) ---",
+        loreLines.join("\n"),
+        pinLines.length ? `\nFOLDER DIRECTIONS (apply to all your responses):\n${pinLines.join("\n")}` : "",
+        "---",
+      ].filter(Boolean).join("\n");
+    }
+  }
+
   // Chain mode: inject handoff prompt into system and prepend previous response
   const handoffAddition = getHandoffPrompt(personaId, body.previousPersona ?? null);
-  const systemPrompt = persona.system + handoffAddition;
+  const systemPrompt = [persona.system, folderLoreBlock, handoffAddition].filter(Boolean).join("\n\n");
 
   // Build the user-facing prompt; in chain mode prepend the previous agent's output
   let promptUserMessage = userMessage;

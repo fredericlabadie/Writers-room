@@ -12,7 +12,48 @@ Writers Room is a collaborative AI workspace — a multi-agent chat room where u
 
 ---
 
-## Getting oriented fast
+## Folder system
+
+Folders are project containers. Rooms are chapters/sessions inside them. **Folder lore cascades into every agent call** — about, genre, reader, tone, and folder pins are injected into the system prompt for every room that belongs to a folder.
+
+**Schema:**
+```
+folders         (id, name, description, owner_id, genre, reader, tone, about, created_at)
+folder_members  (folder_id, user_id, role: owner|member, joined_at)
+folder_pins     (id, folder_id, text, created_by, created_at)
+rooms.folder_id (uuid FK → folders.id, ON DELETE SET NULL)
+```
+
+**API routes:**
+```
+GET  /api/folders                         List user's folders (owned + member)
+POST /api/folders                         Create folder
+GET  /api/folders/[folderId]              Folder detail + pins + rooms (with message stats)
+PATCH /api/folders/[folderId]             Update lore fields (name, description, genre, reader, tone, about)
+DELETE /api/folders/[folderId]            Owner only; rooms are un-assigned (not deleted)
+GET  /api/folders/[folderId]/pins         List pins
+POST /api/folders/[folderId]/pins         Add a pin
+DELETE /api/folders/[folderId]/pins/[id]  Remove a pin
+```
+
+**Lore injection (in /api/chat/route.ts):**
+Before building the system prompt, the chat route fetches the room's `folder_id`, then fetches the folder's lore and pins. These are appended to the system prompt as a `FOLDER LORE` block. Rooms without a folder get no injection — no performance penalty for unfolderd rooms.
+
+**Rooms page layout:**
+- Left sidebar (260px): navigation (All rooms) + collapsible folder tree per project
+- All rooms view: shows only rooms NOT in any folder
+- Folder view: folder hero (name, about, lore tags, cascade card), folder pins, room list for that folder
+- "All rooms" excludes foldered rooms — each room appears in exactly one place
+
+**Key patterns:**
+- Rooms can exist without a folder (folder_id = null)
+- POST /api/rooms now accepts optional `folder_id`
+- Deleting a folder sets rooms' folder_id to null (ON DELETE SET NULL) — rooms are never lost
+- Folder pins are like directions but project-scoped — they don't expire per session
+
+---
+
+
 
 The entire chat UI lives in one file: `components/WritersRoom.tsx` (~2400 lines). Everything else feeds into it.
 
@@ -180,7 +221,13 @@ All three support **minimize** (▾/▸ hover button) and **delete with confirm*
 - Room-specific researcher agents: `@intel` (job hunt), `@analyst` (career), `@reader` (publishing)
 - `@drafter` agent for career room (replaces generic `@writer`)
 - Bug fix: `room_type` was never saved on room creation (was always defaulting to `writers`)
-- **Claude Design v2 pass** (latest):
+- **Folder system**:
+  - `folders`, `folder_members`, `folder_pins` tables; `rooms.folder_id` FK
+  - Full API layer (`/api/folders`, `/api/folders/[id]`, `/api/folders/[id]/pins`)
+  - `/api/chat` now injects folder lore + pins into the system prompt for rooms in a folder
+  - `/api/rooms` POST now accepts `folder_id`
+  - Rooms page redesigned: sidebar with project folder tree, folder detail view
+- **Claude Design v2 pass**:
   - New color palette — blue-tinted darks, updated token names (`bg2`, `body`, `faint`)
   - Agent colors: critic `#ff3d3d` → `#ff5a5a`, director `#c030ff` → `#c89cff`
   - Two new font families: `DM Serif Display` (Director synthesis, display moments) and `Source Serif Pro italic` (Writer manuscript voice)

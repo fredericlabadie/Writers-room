@@ -47,8 +47,32 @@ export interface Room {
   notebooklm_url: string | null;
   active_tone: SpotifyTone | null;
   notes: string | null;
+  folder_id: string | null;
   created_at: string;
   member_count?: number;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  description: string | null;
+  owner_id: string;
+  genre: string | null;
+  reader: string | null;
+  tone: string | null;
+  about: string | null;
+  created_at: string;
+  // Derived fields (from joins)
+  room_count?: number;
+  pin_count?: number;
+}
+
+export interface FolderPin {
+  id: string;
+  folder_id: string;
+  text: string;
+  created_by: string | null;
+  created_at: string;
 }
 
 export interface RoomMember {
