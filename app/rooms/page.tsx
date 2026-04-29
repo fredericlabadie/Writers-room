@@ -114,7 +114,7 @@ function RoomCard({
         style={{
           background: surf,
           border: `1px solid ${isConfirming ? "#ff3d3d44" : bdr}`,
-          borderLeft: `3px solid ${(() => { const cfg = ROOM_TYPE_CONFIG[(room as any).room_type ?? "writers"]; return isConfirming ? "#ff3d3d" : cfg.color; })()}`,
+          borderLeft: `3px solid ${isConfirming ? "#ff3d3d" : ROOM_TYPE_CONFIG[((room as any).room_type as RoomType) ?? "writers"].color}`,
           borderRadius: 6,
           transform: `translateX(-${swipeX}px)`,
           transition: swiping ? "none" : "transform 0.22s ease, border-color 0.15s",
