@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS folders (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text NOT NULL,
   description text,
-  owner_id    uuid REFERENCES profiles(id) ON DELETE CASCADE,
+  owner_id    text REFERENCES profiles(id) ON DELETE CASCADE,
   genre       text,
   reader      text,    -- comp titles / target reader
   tone        text,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS folders (
 -- 2. Folder members (for sharing folders across collaborators)
 CREATE TABLE IF NOT EXISTS folder_members (
   folder_id  uuid REFERENCES folders(id) ON DELETE CASCADE,
-  user_id    uuid REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id    text REFERENCES profiles(id) ON DELETE CASCADE,
   role       text NOT NULL DEFAULT 'member',  -- 'owner' | 'member'
   joined_at  timestamptz DEFAULT now(),
   PRIMARY KEY (folder_id, user_id)
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS folder_pins (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   folder_id   uuid REFERENCES folders(id) ON DELETE CASCADE,
   text        text NOT NULL,
-  created_by  uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  created_by  text REFERENCES profiles(id) ON DELETE SET NULL,
   created_at  timestamptz DEFAULT now()
 );
 
