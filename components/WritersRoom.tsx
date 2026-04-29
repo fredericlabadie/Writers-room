@@ -1707,13 +1707,23 @@ ${directorSynthesis}`,
         ) : (
           <>
             <button onClick={() => router.push("/rooms")} style={{ background:"none", border:"none", color:T.sub, fontSize:18, cursor:"pointer" }}>←</button>
-            <div style={{ display:"flex", alignItems:"center", gap:8, flex:1 }}>
-              <span style={{ fontFamily:T.mono, fontSize:10, color:T.sub, letterSpacing:"0.14em" }}>
-                {room.name.toUpperCase()}
+            <div style={{ display:"flex", alignItems:"center", gap:10, flex:1 }}>
+              <span style={{ fontFamily:T.sans, fontSize:13, fontWeight:500, color:T.text, letterSpacing:"0.01em" }}>
+                {room.name}
               </span>
-              <span style={{ fontSize:8, color:roomConfig.color, fontFamily:T.mono, border:`1px solid ${roomConfig.color}44`, padding:"1px 6px", borderRadius:3 }}>
+              <span style={{
+                fontSize:8, color:roomConfig.color, fontFamily:T.mono,
+                background:roomConfig.color+"12",
+                border:`1px solid ${roomConfig.color}33`,
+                padding:"2px 7px", borderRadius:10,
+              }}>
                 {roomConfig.icon} {roomConfig.label.toUpperCase()}
               </span>
+              {room.is_private && (
+                <span style={{ fontSize:8, color:T.meta, fontFamily:T.mono, border:`1px solid ${T.bdr2}`, padding:"2px 6px", borderRadius:10 }}>
+                  PRIVATE
+                </span>
+              )}
             </div>
             {tone && (
               <div style={{ display:"flex", alignItems:"center", gap:5, padding:"2px 8px", background:"#1a0530", border:"1px solid #c030ff30", borderRadius:12 }}>
@@ -1775,16 +1785,32 @@ ${directorSynthesis}`,
           {/* Stage */}
           <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"0 24px", position:"relative" }}>
             <div style={{ textAlign:"center", marginBottom:36 }}>
-              <div style={{ fontFamily:T.mono, fontSize:isMobile?11:14, color:"#777", letterSpacing:"0.28em", marginBottom:14 }}>
-                {roomConfig.label.toUpperCase()} · READY
+              {/* Room type badge */}
+              <div style={{
+                display:"inline-flex", alignItems:"center", gap:6,
+                padding:"4px 12px", borderRadius:20,
+                background:roomConfig.color+"12", border:`1px solid ${roomConfig.color}30`,
+                marginBottom:20,
+              }}>
+                <span style={{ color:roomConfig.color, fontSize:13 }}>{roomConfig.icon}</span>
+                <span style={{ fontFamily:T.mono, fontSize:8.5, color:roomConfig.color, letterSpacing:"0.12em" }}>
+                  {roomConfig.label.toUpperCase()}
+                </span>
               </div>
-              <div style={{ fontFamily:T.sans, fontSize:isMobile?16:20, color:"#666" }}>
+              <div style={{ fontFamily:T.sans, fontSize:isMobile?16:19, color:"#555", lineHeight:1.5, maxWidth:360 }}>
                 {{
-                  writers:    "Drop in an idea. Call an agent.",
-                  jobhunt:    "What are you working on? Describe the role or company.",
-                  career:     "What's on your mind? Describe the situation.",
-                  publishing: "Tell me about your work. Where are you in the process?",
+                  writers:    "Drop in an idea.
+Call an agent.",
+                  jobhunt:    "Describe the role or company
+you're working on.",
+                  career:     "Describe the situation
+you want to think through.",
+                  publishing: "Tell me about your work
+and where you are in the process.",
                 }[roomType] ?? "Drop in an idea. Call an agent."}
+              </div>
+              <div style={{ marginTop:10, fontFamily:T.mono, fontSize:9, color:"#333" }}>
+                type @ to call an agent · ⌘K for commands
               </div>
             </div>
             <div style={{ width:"100%", maxWidth:520 }}>

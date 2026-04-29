@@ -114,6 +114,7 @@ function RoomCard({
         style={{
           background: surf,
           border: `1px solid ${isConfirming ? "#ff3d3d44" : bdr}`,
+          borderLeft: `3px solid ${(() => { const cfg = ROOM_TYPE_CONFIG[(room as any).room_type ?? "writers"]; return isConfirming ? "#ff3d3d" : cfg.color; })()}`,
           borderRadius: 6,
           transform: `translateX(-${swipeX}px)`,
           transition: swiping ? "none" : "transform 0.22s ease, border-color 0.15s",
@@ -129,7 +130,7 @@ function RoomCard({
               cursor: isConfirming || swipeX > 0 ? "default" : "pointer",
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 500, color: text, marginBottom: 3, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: text, marginBottom: 5, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
               {highlightFn ? highlightFn(room.name) : room.name}
               {room.is_private && (
                 <span style={{ fontSize: 9, color: sub, fontFamily: mono, border: `1px solid ${bdr2}`, padding: "1px 5px", borderRadius: 3 }}>
@@ -339,32 +340,43 @@ export default function RoomsPage() {
 
       {/* Header */}
       <div style={{
-        padding: "0 32px", height: 52,
-        borderBottom: `1px solid ${bdr}`, background: "#0d0d0d",
+        padding: "0 24px", height: 54,
+        borderBottom: `1px solid ${bdr}`, background: "#0c0c0c",
         display: "flex", alignItems: "center", justifyContent: "space-between",
         position: "sticky", top: 0, zIndex: 10,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ display: "flex", gap: 5 }}>
-            {["◈","✦","⌘","⚡","◎"].map((icon, i) => {
-              const colors = ["#0fe898","#4da8ff","#ffca00","#ff3d3d","#c030ff"];
-              return <span key={i} style={{ color: colors[i], fontSize: 13 }}>{icon}</span>;
-            })}
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ display: "flex", gap: 7 }}>
+            {[
+              { icon:"◈", color:"#34d399" },
+              { icon:"✦", color:"#60a5fa" },
+              { icon:"⌘", color:"#fbbf24" },
+              { icon:"⚡", color:"#f87171" },
+              { icon:"◎", color:"#c084fc" },
+            ].map((a, i) => (
+              <span key={i} style={{ color: a.color, fontSize: 14 }}>{a.icon}</span>
+            ))}
           </div>
-          <span style={{ fontFamily: mono, fontSize: 10, color: sub, letterSpacing: "0.12em" }}>
-            ALL ROOMS
+          <div style={{ width: 1, height: 16, background: bdr2 }} />
+          <span style={{ fontFamily: mono, fontSize: 9, color: "#444", letterSpacing: "0.14em" }}>
+            WRITERS ROOM
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {session?.user?.image && (
             <img src={session.user.image} alt="" style={{ width: 26, height: 26, borderRadius: "50%", border: `1px solid ${bdr2}` }} />
           )}
-          <span style={{ fontSize: 13, color: sub }}>{session?.user?.name}</span>
+          <span style={{ fontSize: 12, color: sub, fontFamily: sans }}>{session?.user?.name}</span>
+          <div style={{ width: 1, height: 14, background: bdr2 }} />
           <button onClick={() => signOut()} style={{
-            background: "none", border: `1px solid ${bdr2}`, color: sub,
-            padding: "4px 12px", borderRadius: 6, fontSize: 10,
-            fontFamily: mono, letterSpacing: "0.08em", cursor: "pointer",
-          }}>SIGN OUT</button>
+            background: "none", border: "none", color: "#444",
+            padding: "4px 0", fontSize: 9,
+            fontFamily: mono, letterSpacing: "0.1em", cursor: "pointer",
+          }}
+          onMouseEnter={e => e.currentTarget.style.color = sub}
+          onMouseLeave={e => e.currentTarget.style.color = "#444"}>
+            SIGN OUT
+          </button>
         </div>
       </div>
 
@@ -475,9 +487,38 @@ export default function RoomsPage() {
         {loading ? (
           <p style={{ color: "#333", fontFamily: mono, fontSize: 11 }}>Loading…</p>
         ) : rooms.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "60px 0", color: "#444" }}>
-            <p style={{ fontSize: 14, marginBottom: 8 }}>No rooms yet.</p>
-            <p style={{ fontSize: 11, fontFamily: mono }}>Create one or join with an invite code.</p>
+          <div style={{ padding: "48px 0 32px" }}>
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
+              <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 16 }}>
+                {["◈","✦","⌘","⚡","◎"].map((icon, i) => {
+                  const colors = ["#34d399","#60a5fa","#fbbf24","#f87171","#c084fc"];
+                  return <span key={i} style={{ color: colors[i], fontSize: 20 }}>{icon}</span>;
+                })}
+              </div>
+              <p style={{ fontSize: 15, color: "#555", marginBottom: 6, fontFamily: sans }}>No rooms yet</p>
+              <p style={{ fontSize: 12, color: "#333", fontFamily: mono }}>Create a room or join with an invite code</p>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {(Object.entries(ROOM_TYPE_CONFIG) as [RoomType, typeof ROOM_TYPE_CONFIG[RoomType]][]).map(([type, cfg]) => (
+                <button
+                  key={type}
+                  onClick={() => { setNewRoom(p => ({ ...p, room_type: type })); setShowCreate(true); setShowJoin(false); }}
+                  style={{
+                    padding: "14px 16px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                    background: "#111", border: `1px solid ${bdr}`, borderLeft: `3px solid ${cfg.color}`,
+                    transition: "border-color 0.15s, background 0.15s",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = cfg.color + "0d"; e.currentTarget.style.borderColor = cfg.color + "55"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#111"; e.currentTarget.style.borderColor = bdr; }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                    <span style={{ color: cfg.color, fontSize: 16 }}>{cfg.icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: text, fontFamily: sans }}>{cfg.label}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: sub, fontFamily: mono, lineHeight: 1.5 }}>{cfg.description}</div>
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           <div>
