@@ -49,7 +49,7 @@ export async function GET(req: Request) {
 
   if (!messages?.length) return NextResponse.json({ thisRoom: [], otherRooms: [] });
 
-  const otherRoomIds = [...new Set(messages.filter(m => m.room_id !== currentRoomId).map(m => m.room_id))];
+  const otherRoomIds = Array.from(new Set(messages.filter(m => m.room_id !== currentRoomId).map(m => m.room_id)));
   let roomNames: Record<string, string> = {};
   if (otherRoomIds.length) {
     const { data: rooms } = await supabase
