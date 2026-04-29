@@ -231,12 +231,12 @@ export default function SettingsPage() {
               style={{
                 width: "100%", display: "block", padding: "7px 10px",
                 background: "transparent",
+                border: "none",
                 borderLeft: activeSection === section ? `2px solid #c89cff` : `2px solid transparent`,
                 fontFamily: T.sans, fontSize: 12.5,
                 color: activeSection === section ? T.text : T.body,
                 fontWeight: activeSection === section ? 500 : 400,
-                cursor: "pointer", textAlign: "left", border: "none",
-                borderLeft: activeSection === section ? `2px solid #c89cff` : `2px solid transparent`,
+                cursor: "pointer", textAlign: "left",
                 marginBottom: 2,
               }}
             >
