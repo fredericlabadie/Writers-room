@@ -572,7 +572,7 @@ export default function RoomsPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.sans, display: "flex", flexDirection: "column" }}>
-      <style>{`${FONTS} *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; } input, textarea { font-family: inherit; } input:focus, textarea:focus { outline: none; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${T.bdr2}; border-radius: 2px; } .sidebar-overlay { display: none; } @media (max-width: 700px) { .sidebar-desktop { display: none !important; } .sidebar-mobile { position: fixed !important; top: 0; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); transition: transform 0.22s ease; } .sidebar-mobile.open { transform: translateX(0) !important; } .sidebar-overlay { display: block; position: fixed; inset: 0; z-index: 99; background: rgba(0,0,0,0.55); } .sidebar-toggle { display: flex !important; } }`}</style>
+      <style>{`${FONTS} *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; } input, textarea { font-family: inherit; } input:focus, textarea:focus { outline: none; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${T.bdr2}; border-radius: 2px; } .sidebar-overlay { display: none; } .sidebar-toggle { display: none; } @media (max-width: 700px) { .sidebar { position: fixed !important; top: 0; left: 0; bottom: 0; width: 260px !important; z-index: 100; transform: translateX(-260px); transition: transform 0.22s ease; } .sidebar.open { transform: translateX(0); } .sidebar-overlay { display: block; position: fixed; inset: 0; z-index: 99; background: rgba(0,0,0,0.55); } .sidebar-toggle { display: flex !important; } }`}</style>
 
       {/* ── Top bar ── */}
       <div style={{ padding: "0 24px", height: 52, borderBottom: `1px solid ${T.bdr}`, background: T.bg2, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
@@ -608,7 +608,7 @@ export default function RoomsPage() {
 
         {/* ── Sidebar — desktop: inline; mobile: slide-in drawer ── */}
         <div
-          className={`sidebar-desktop sidebar-mobile${sidebarOpen ? " open" : ""}`}
+          className={`sidebar${sidebarOpen ? " open" : ""}`}
           style={{ width: 260, background: T.bg2, borderRight: `1px solid ${T.bdr}`, display: "flex", flexDirection: "column", flexShrink: 0 }}
         >
           <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
