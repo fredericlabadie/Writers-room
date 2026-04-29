@@ -4,23 +4,36 @@ import { signIn } from "next-auth/react";
 import { useState } from "react";
 
 const T = {
-  bg:   "#0a0a0a",
-  surf: "#111111",
-  bdr:  "#1e1e1e",
-  bdr2: "#2a2a2a",
-  text: "#dcdcdc",
-  sub:  "#888888",
-  meta: "#555555",
-  mono: "'IBM Plex Mono', monospace",
-  sans: "'IBM Plex Sans', sans-serif",
+  bg:    "#0a0a0c",
+  bg2:   "#0e0e11",
+  surf:  "#131318",
+  surf2: "#1a1a20",
+  bdr:   "#23232a",
+  bdr2:  "#2e2e36",
+  text:  "#e5e5ea",
+  body:  "#b8b8c0",
+  sub:   "#8a8a92",
+  meta:  "#5a5a62",
+  faint: "#3a3a42",
+  mono:  "'IBM Plex Mono', ui-monospace, monospace",
+  sans:  "'IBM Plex Sans', system-ui, sans-serif",
+  serif: "'DM Serif Display', 'Source Serif Pro', Georgia, serif",
+  italic:"'Source Serif Pro', 'Iowan Old Style', Georgia, serif",
 } as const;
 
 const AGENTS = [
-  { icon: "◈", color: "#34d399", handle: "researcher" },
-  { icon: "✦", color: "#60a5fa", handle: "writer"     },
-  { icon: "⌘", color: "#fbbf24", handle: "editor"     },
-  { icon: "⚡", color: "#f87171", handle: "critic"     },
-  { icon: "◎", color: "#c084fc", handle: "director"   },
+  { icon: "◈", color: "#0fe898", id: "researcher" },
+  { icon: "✦", color: "#4da8ff", id: "writer"     },
+  { icon: "⌘", color: "#ffca00", id: "editor"     },
+  { icon: "⚡", color: "#ff5a5a", id: "critic"     },
+  { icon: "◎", color: "#c89cff", id: "director"   },
+];
+
+const FEATURES: [string, string, string][] = [
+  ["◬", "#e879f9", "Worldbuilding rooms with persistent canon"],
+  ["✦", "#4da8ff", "Real drafts, not suggestions — from a Writer who actually writes"],
+  ["◎", "#c89cff", "Director synthesizes every exchange and names the next move"],
+  ["↗", "#8a8a92", "NotebookLM Lore Pack export + Google Drive"],
 ];
 
 export default function LoginPage() {
@@ -35,150 +48,148 @@ export default function LoginPage() {
     <div style={{
       minHeight: "100vh", background: T.bg,
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: T.sans, padding: "24px",
+      fontFamily: T.sans, padding: "32px 24px",
+      position: "relative",
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=DM+Serif+Display:ital@0;1&family=Source+Serif+Pro:ital,wght@0,400;1,400&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
-        @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
-        .fade-up { animation: fadeUp 0.4s ease both; }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+        .fade-up { animation: fadeUp 0.5s ease both; }
       `}</style>
 
-      <div style={{ width: "100%", maxWidth: 380 }}>
+      {/* Ambient grid */}
+      <div style={{
+        position: "absolute", inset: 0,
+        backgroundImage: `linear-gradient(${T.bdr} 1px, transparent 1px), linear-gradient(90deg, ${T.bdr} 1px, transparent 1px)`,
+        backgroundSize: "48px 48px", opacity: 0.18, pointerEvents: "none",
+      }} />
 
-        {/* ── Hero ── */}
-        <div className="fade-up" style={{ textAlign: "center", marginBottom: 36 }}>
-          {/* Agent row */}
-          <div style={{ display: "flex", justifyContent: "center", gap: 18, marginBottom: 28 }}>
-            {AGENTS.map((a, i) => (
-              <div key={i} style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-                animationDelay: `${i * 60}ms`,
-              }} className="fade-up">
-                <span style={{ fontSize: 26, color: a.color, lineHeight: 1, display: "block" }}>
-                  {a.icon}
-                </span>
-                <span style={{
-                  fontFamily: T.mono, fontSize: 7, color: a.color + "55",
-                  letterSpacing: "0.08em",
-                }}>
-                  @{a.handle.slice(0, 5)}
-                </span>
-              </div>
-            ))}
+      <div className="fade-up" style={{
+        position: "relative", zIndex: 1, width: "100%", maxWidth: 900,
+        display: "grid", gridTemplateColumns: "1.2fr 1fr",
+        gap: 56, alignItems: "center",
+      }}>
+
+        {/* ── Left: pitch ── */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {AGENTS.map(a => (
+                <span key={a.id} style={{ color: a.color, fontSize: 16, lineHeight: 1 }}>{a.icon}</span>
+              ))}
+            </div>
+            <div style={{ width: 1, height: 14, background: T.bdr2 }} />
+            <span style={{ fontFamily: T.mono, fontSize: 9, color: T.meta, letterSpacing: "0.14em" }}>WRITERS ROOM</span>
           </div>
 
           <h1 style={{
-            fontSize: 24, fontWeight: 500, color: T.text,
-            letterSpacing: "0.01em", marginBottom: 10, fontFamily: T.sans,
+            fontFamily: T.serif, fontSize: 56, lineHeight: 1.05,
+            letterSpacing: "-0.025em", color: T.text,
+            marginBottom: 18, fontWeight: 400,
           }}>
-            Writers Room
+            Five voices.<br />
+            <em style={{ fontStyle: "italic", color: "#4da8ff" }}>One room.</em>
           </h1>
-          <p style={{
-            fontSize: 13, color: T.sub, lineHeight: 1.65, fontFamily: T.sans,
-          }}>
-            A collaborative space for writers and&nbsp;AI&nbsp;agents
+
+          <p style={{ fontSize: 15, color: T.sub, lineHeight: 1.7, maxWidth: 390, marginBottom: 32 }}>
+            A Researcher to ground you. A Writer who actually drafts. An Editor who tightens. A Critic who pushes back. A Director who synthesizes and names the next move.
           </p>
+
+          {/* Director preview card */}
+          <div style={{
+            padding: "14px 16px",
+            background: "#c89cff0f", border: "1px solid #c89cff44",
+            borderLeft: "2px solid #c89cff", borderRadius: "0 6px 6px 0",
+            maxWidth: 430,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ color: "#c89cff", fontSize: 13 }}>◎</span>
+              <span style={{ fontFamily: T.mono, fontSize: 8, color: "#c89cffaa", letterSpacing: "0.1em" }}>@director · LIVE PREVIEW</span>
+            </div>
+            <p style={{
+              fontFamily: T.italic, fontSize: 14, fontStyle: "italic",
+              color: T.body, lineHeight: 1.65, margin: 0,
+            }}>
+              "The Researcher grounds us in what's verified. The Writer drafts a real version. The Critic finds the three weakest points. Taking it all together — here's the next move."
+            </p>
+          </div>
         </div>
 
-        {/* ── Login card ── */}
+        {/* ── Right: sign-in card ── */}
         <div className="fade-up" style={{
-          background: T.surf, border: `1px solid ${T.bdr}`,
+          background: T.surf, border: `1px solid ${T.bdr2}`,
           borderRadius: 12, padding: "28px 28px 22px",
-          animationDelay: "180ms",
+          animationDelay: "120ms",
         }}>
           <p style={{
             fontFamily: T.mono, fontSize: 9, color: T.meta,
-            letterSpacing: "0.16em", marginBottom: 18, textAlign: "center",
-          }}>
-            SIGN IN TO CONTINUE
-          </p>
+            letterSpacing: "0.16em", marginBottom: 14, textAlign: "center",
+          }}>SIGN IN TO CONTINUE</p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {/* Google */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
             <button
               onClick={() => handleSignIn("google")}
               disabled={loading !== null}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                padding: "12px 16px", borderRadius: 8,
+                padding: "13px 16px", borderRadius: 8,
                 background: loading === "google" ? "#e8e8e8" : "#ffffff",
                 border: "none", color: "#1a1a1a",
                 fontSize: 14, fontWeight: 500, fontFamily: T.sans,
                 cursor: loading !== null ? "wait" : "pointer",
-                opacity: loading !== null && loading !== "google" ? 0.45 : 1,
+                opacity: loading !== null && loading !== "google" ? 0.4 : 1,
                 transition: "opacity 0.15s, background 0.15s",
               }}
               onMouseEnter={e => { if (!loading) e.currentTarget.style.opacity = "0.9"; }}
               onMouseLeave={e => { if (!loading) e.currentTarget.style.opacity = "1"; }}
             >
-              {loading === "google" ? (
-                <span style={{ fontFamily: T.mono, fontSize: 11, color: "#666" }}>Redirecting…</span>
-              ) : (
-                <>
-                  <GoogleIcon />
-                  Continue with Google
-                </>
-              )}
+              {loading === "google"
+                ? <span style={{ fontFamily: T.mono, fontSize: 11, color: "#666" }}>Redirecting…</span>
+                : <><GoogleIcon />Continue with Google</>}
             </button>
 
-            {/* GitHub */}
             <button
               onClick={() => handleSignIn("github")}
               disabled={loading !== null}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                padding: "12px 16px", borderRadius: 8,
-                background: "#24292e", border: "1px solid #444",
+                padding: "13px 16px", borderRadius: 8,
+                background: "#24292e", border: "1px solid #3a3a3a",
                 color: "#ffffff", fontSize: 14, fontWeight: 500, fontFamily: T.sans,
                 cursor: loading !== null ? "wait" : "pointer",
-                opacity: loading !== null && loading !== "github" ? 0.45 : 1,
+                opacity: loading !== null && loading !== "github" ? 0.4 : 1,
                 transition: "opacity 0.15s, background 0.15s",
               }}
               onMouseEnter={e => { if (!loading) e.currentTarget.style.background = "#2d333b"; }}
               onMouseLeave={e => { if (!loading) e.currentTarget.style.background = "#24292e"; }}
             >
-              {loading === "github" ? (
-                <span style={{ fontFamily: T.mono, fontSize: 11, color: "#aaa" }}>Redirecting…</span>
-              ) : (
-                <>
-                  <GitHubIcon />
-                  Continue with GitHub
-                </>
-              )}
+              {loading === "github"
+                ? <span style={{ fontFamily: T.mono, fontSize: 11, color: "#aaa" }}>Redirecting…</span>
+                : <><GitHubIcon />Continue with GitHub</>}
             </button>
           </div>
 
-          <p style={{
-            marginTop: 20, textAlign: "center",
-            fontSize: 11, color: T.meta,
-            fontFamily: T.mono, lineHeight: 1.6,
-          }}>
-            Sign in to access your rooms
-          </p>
-        </div>
+          <div style={{ height: 1, background: T.bdr, margin: "20px 0" }} />
 
-        {/* ── Tagline row ── */}
-        <div className="fade-up" style={{
-          marginTop: 28, display: "flex", justifyContent: "center",
-          gap: 0, animationDelay: "280ms",
-        }}>
-          {["Research", "Write", "Edit", "Critique", "Direct"].map((label, i) => (
-            <div key={i} style={{
-              display: "flex", alignItems: "center", gap: 0,
-            }}>
-              <span style={{
-                fontFamily: T.mono, fontSize: 9,
-                color: i === 2 ? T.sub : T.meta,
-                padding: "0 8px",
-                borderRight: i < 4 ? `1px solid ${T.bdr}` : "none",
-              }}>
-                {label}
-              </span>
-            </div>
-          ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {FEATURES.map(([icon, color, text]) => (
+              <div key={text} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: T.sub }}>
+                <span style={{ color, fontSize: 13, width: 14, flexShrink: 0 }}>{icon}</span>
+                {text}
+              </div>
+            ))}
+          </div>
+
+          <p style={{
+            marginTop: 20, fontFamily: T.mono, fontSize: 9,
+            color: T.faint, textAlign: "center", letterSpacing: "0.1em",
+          }}>BY SIGNING IN YOU AGREE TO TERMS · PRIVACY</p>
         </div>
       </div>
+
+      {/* Mobile: hide the pitch column */}
+      <style>{`@media(max-width:700px){.login-cols{grid-template-columns:1fr!important}.login-pitch{display:none!important}}`}</style>
     </div>
   );
 }
