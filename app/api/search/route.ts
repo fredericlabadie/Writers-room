@@ -29,6 +29,9 @@ export async function GET(req: Request) {
 
   if (q.length < 2) return NextResponse.json({ thisRoom: [], otherRooms: [] });
 
+  // Escape SQL LIKE special characters so % and _ are treated as literals
+  const escapedQ = q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+
   const supabase = createSupabaseServiceClient();
 
   const { data: memberships } = await supabase
@@ -43,7 +46,7 @@ export async function GET(req: Request) {
     .from("messages")
     .select("id, room_id, role, persona, content, created_at, user_name")
     .in("room_id", roomIds)
-    .ilike("content", `%${q}%`)
+    .ilike("content", `%${escapedQ}%`)
     .order("created_at", { ascending: false })
     .limit(40);
 

@@ -1054,7 +1054,12 @@ function InterventionNote({ intervention, onDismiss, onAcceptPin, onSaveDirectio
       </div>
       <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 13, lineHeight: 1.55, color: "#e5e5ea", marginBottom: 9 }}>{text}</div>
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-        <button onClick={() => { onSaveDirection(text); onDismiss(id); }} style={{ ...btnBase, background: color, color: "#0a0a0c", fontWeight: 600 }}>Pin it →</button>
+        <button onClick={() => {
+        // Save only the first sentence — directions are short labels
+        const firstSentence = text.split(/[.!?]/)[0].trim().slice(0, 120);
+        onSaveDirection(firstSentence || text.slice(0, 120));
+        onDismiss(id);
+      }} style={{ ...btnBase, background: color, color: "#0a0a0c", fontWeight: 600 }}>Pin it →</button>
         <button onClick={() => onDismiss(id)} style={{ ...btnBase, background: "transparent", color, border: `1px solid ${color}66` }}>Noted — dismiss</button>
         <button onClick={() => onDismiss(id)} style={{ ...btnBase, background: "transparent", color: "#5a5a62", border: "1px solid #2e2e36" }}>Not now</button>
       </div>
@@ -1345,7 +1350,8 @@ function CommandPalette({ onClose, onScreen, onClear, onDemo, onModal, onExport,
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [onClose, selected, showActions, results, ACTIONS]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, selected, showActions, results]);
 
   useEffect(() => { setSelected(0); }, [query]);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 30); }, []);
@@ -2387,7 +2393,7 @@ ${directorSynthesis}`,
       const historySnapshot = [...baseHistory];
       for (const personaId of allMentions) {
         const result = await callAgent(personaId, historySnapshot, null, null);
-        if (result === null && Object.keys(loading).length === 0) return;
+        if (result === null) break; // agent failed, abort the sequence
         if (result) historySnapshot.push({ role: "agent", persona: personaId, content: result, user_name: undefined });
       }
     } else {
@@ -2901,7 +2907,7 @@ ${directorSynthesis}`,
                         userId: currentUser.id, name: currentUser.name,
                         avatar: currentUser.image, color: presenceColor(currentUser.id),
                         status: e.target.value.trim() ? "typing" : "reading",
-                        joinedAt: new Date().toISOString(),
+                        // Don't update joinedAt on every keystroke
                       }).catch(() => {});
                     }
                   }}
@@ -3216,7 +3222,7 @@ ${directorSynthesis}`,
                         userId: currentUser.id, name: currentUser.name,
                         avatar: currentUser.image, color: presenceColor(currentUser.id),
                         status: e.target.value.trim() ? "typing" : "reading",
-                        joinedAt: new Date().toISOString(),
+                        // Don't update joinedAt on every keystroke
                       }).catch(() => {});
                     }
                   }}
