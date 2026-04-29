@@ -213,7 +213,7 @@ All three support **minimize** (▾/▸ hover button) and **delete with confirm*
 
 ---
 
-## What was recently built (as of April 2026)
+## What was recently built
 
 - Room notes panel (`notes` column on rooms, collapsible UI, auto-save)
 - Dual export (GET=.md, POST=Google Drive)

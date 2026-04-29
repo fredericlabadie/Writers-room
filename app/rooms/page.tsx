@@ -445,7 +445,7 @@ function FolderTag({ label, value }: { label: string; value: string }) {
 
 // ── All rooms view ────────────────────────────────────────────────────────────
 
-function AllRoomsView({ rooms, onOpen, onRefresh }: { rooms: RoomEntry[]; onOpen: (id: string) => void; onRefresh: () => void }) {
+function AllRoomsView({ rooms, onOpen, onRefresh, allRoomsTotal }: { rooms: RoomEntry[]; onOpen: (id: string) => void; onRefresh: () => void; allRoomsTotal: number }) {
   const router = useRouter();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
@@ -476,7 +476,7 @@ function AllRoomsView({ rooms, onOpen, onRefresh }: { rooms: RoomEntry[]; onOpen
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px 40px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
-        <span style={{ fontFamily: T.mono, fontSize: 9, color: T.meta, letterSpacing: "0.12em" }}>ALL ROOMS · {rooms.length}</span>
+        <span style={{ fontFamily: T.mono, fontSize: 9, color: T.meta, letterSpacing: "0.12em" }}>UNFOLDERED · {rooms.length}</span>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => { setShowJoin(true); setShowCreate(false); setError(""); }} style={{ padding: "6px 13px", borderRadius: 5, background: T.surf, border: `1px solid ${T.bdr2}`, color: T.sub, fontSize: 12, cursor: "pointer", fontFamily: T.mono }}>join room</button>
           <button onClick={() => { setShowCreate(true); setShowJoin(false); }} style={{ padding: "6px 13px", borderRadius: 5, background: "#0d2240", border: "1px solid #4da8ff44", color: "#4da8ff", fontSize: 12, cursor: "pointer", fontFamily: T.mono }}>+ new room</button>
@@ -521,8 +521,14 @@ function AllRoomsView({ rooms, onOpen, onRefresh }: { rooms: RoomEntry[]; onOpen
               return <span key={i} style={{ color: colors[i], fontSize: 20 }}>{icon}</span>;
             })}
           </div>
-          <p style={{ fontSize: 14, color: "#555", marginBottom: 6 }}>No rooms yet</p>
-          <p style={{ fontSize: 11, color: "#333", fontFamily: T.mono }}>Create a room or folder to get started</p>
+          <p style={{ fontSize: 14, color: "#555", marginBottom: 6 }}>
+            {allRoomsTotal > 0 ? "All rooms are in folders" : "No rooms yet"}
+          </p>
+          <p style={{ fontSize: 11, color: "#333", fontFamily: T.mono }}>
+            {allRoomsTotal > 0
+              ? "Select a project in the sidebar to view its rooms"
+              : "Create a room or folder to get started"}
+          </p>
         </div>
       ) : (
         filtered.map(entry => (
@@ -632,7 +638,7 @@ export default function RoomsPage() {
             {/* Navigation */}
             <div style={{ display: "flex", flexDirection: "column", gap: 1, marginBottom: 4 }}>
               {[
-                { id: "all", icon: "◍", label: "All rooms", count: rooms.length },
+                { id: "all", icon: "◍", label: "Unfoldered", count: unfolderedRooms.length },
               ].map(item => (
                 <button key={item.id} onClick={() => { setSelectedView(item.id); setSidebarOpen(false); }} style={{ display: "grid", gridTemplateColumns: "16px 1fr auto", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 5, cursor: "pointer", background: selectedView === item.id ? T.surf : "transparent", border: selectedView === item.id ? `1px solid ${T.bdr2}` : "1px solid transparent", textAlign: "left" }}>
                   <span style={{ color: T.sub, fontSize: 12 }}>{item.icon}</span>
@@ -717,7 +723,7 @@ export default function RoomsPage() {
 
         {/* ── Main content ── */}
         {selectedView === "all" ? (
-          <AllRoomsView rooms={unfolderedRooms} onOpen={openRoom} onRefresh={() => setRoomsVersion(v => v + 1)} />
+          <AllRoomsView rooms={unfolderedRooms} onOpen={openRoom} onRefresh={() => setRoomsVersion(v => v + 1)} allRoomsTotal={rooms.length} />
         ) : (
           <FolderView
             key={selectedView}

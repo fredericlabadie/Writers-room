@@ -1754,11 +1754,17 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                 })
                   .then(r => r.ok ? r.json() : { text: "" })
                   .then(data => {
-                    setReturnBrief({ directorText: data.text ?? "", events, awayStr, onYouCount });
+                    const text = data.text ?? "";
+                    // Only show brief if we have content
+                    if (text || events.length > 0) {
+                      setReturnBrief({ directorText: text, events, awayStr, onYouCount });
+                    }
                   })
                   .catch(() => {
-                    // Show brief without Director text if API fails
-                    setReturnBrief({ directorText: "", events, awayStr, onYouCount });
+                    // Show brief without Director text if API fails, but only if we have events
+                    if (events.length > 0) {
+                      setReturnBrief({ directorText: "", events, awayStr, onYouCount });
+                    }
                   });
               }
             }
