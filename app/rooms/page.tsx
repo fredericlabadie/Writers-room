@@ -597,6 +597,9 @@ export default function RoomsPage() {
           <div style={{ width: 1, height: 14, background: T.bdr2 }} />
           <button onClick={() => signOut()} style={{ background: "none", border: "none", color: "#444", fontSize: 9, fontFamily: T.mono, letterSpacing: "0.1em", cursor: "pointer" }}
             onMouseEnter={e => (e.currentTarget.style.color = T.sub)} onMouseLeave={e => (e.currentTarget.style.color = "#444")}>SIGN OUT</button>
+          <div style={{ width: 1, height: 14, background: T.bdr2 }} />
+          <button onClick={() => router.push("/settings")} style={{ background: "none", border: "none", color: "#444", fontSize: 9, fontFamily: T.mono, letterSpacing: "0.1em", cursor: "pointer" }}
+            onMouseEnter={e => (e.currentTarget.style.color = T.sub)} onMouseLeave={e => (e.currentTarget.style.color = "#444")}>SETTINGS</button>
         </div>
       </div>
 

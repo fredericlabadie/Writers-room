@@ -1134,7 +1134,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [directions, setDirections] = useState<string[]>([]);
   const [expandedPrompt, setExpandedPrompt] = useState<string | null>(null);
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
-  const [agentInspirations, setAgentInspirations] = useState<Record<string, string[]>>({});
+  const [agentInspirations, setAgentInspirations] = useState<Record<string, {name:string;weight:number}[]>>({});
+  const [selectedRoleAgent, setSelectedRoleAgent] = useState<string>("");
   const [inspirationInputs, setInspirationInputs] = useState<Record<string, string>>({});
 
   // Feature state
@@ -1218,7 +1219,19 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
     } catch {}
     try {
       const savedInsp = localStorage.getItem(`wr-inspirations-${room.id}`);
-      if (savedInsp) setAgentInspirations(JSON.parse(savedInsp));
+      if (savedInsp) {
+        const parsed = JSON.parse(savedInsp);
+        // Migrate old string[] format to {name, weight}[] format
+        const migrated: Record<string, {name:string;weight:number}[]> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (Array.isArray(v)) {
+            migrated[k] = (v as any[]).map(item =>
+              typeof item === "string" ? { name: item, weight: 10 } : item
+            );
+          }
+        }
+        setAgentInspirations(migrated);
+      }
     } catch {}
     try {
       const savedReacts = localStorage.getItem(`wr-reactions-${room.id}`);
@@ -1359,9 +1372,17 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const addInspiration = (agentId: string, item: string) => {
     const current = agentInspirations[agentId] ?? [];
     if (!item.trim() || current.length >= 13) return;
-    const next = { ...agentInspirations, [agentId]: [...current, item.trim()] };
+    const next = { ...agentInspirations, [agentId]: [...current, { name: item.trim(), weight: 10 }] };
     setAgentInspirations(next);
     setInspirationInputs(prev => ({ ...prev, [agentId]: "" }));
+    try { localStorage.setItem(`wr-inspirations-${room.id}`, JSON.stringify(next)); } catch {}
+  };
+
+  // Update the weight of an inspiration item
+  const updateInspirationWeight = (agentId: string, idx: number, weight: number) => {
+    const current = agentInspirations[agentId] ?? [];
+    const next = { ...agentInspirations, [agentId]: current.map((item, i) => i === idx ? { ...item, weight: Math.max(1, Math.min(100, weight)) } : item) };
+    setAgentInspirations(next);
     try { localStorage.setItem(`wr-inspirations-${room.id}`, JSON.stringify(next)); } catch {}
   };
 
@@ -1405,10 +1426,36 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
       if (voiceParts.length) parts.push("\nVOICE SETTINGS:\n" + voiceParts.join(" "));
     }
     const insp = agentInspirations[agentId];
-    if (insp?.length) parts.push("\nINSPIRATIONS:\n" + insp.map(i => `- ${i}`).join("\n"));
+    if (insp?.length) {
+      const total = insp.reduce((s, i) => s + i.weight, 0) || 1;
+      parts.push("\nINSPIRATIONS:\n" + insp.map(i => `- ${i.name} (${Math.round((i.weight/total)*100)}%)`).join("\n"));
+    }
     const ctx = agentCtx[agentId];
     if (ctx?.trim()) parts.push("\nUSER CONTEXT:\n" + ctx.trim());
+    if (directions.length) parts.push("\nDIRECTIONS:\n" + directions.map((d, i) => `${i+1}. ${d}`).join("\n"));
     return parts.join("\n");
+  };
+
+  // Returns labeled sections for color-coded prompt preview
+  const buildPromptSections = (agentId: string): {label: string; color: string; text: string}[] => {
+    const persona = PERSONAS[agentId as PersonaId];
+    if (!persona) return [];
+    const sections: {label: string; color: string; text: string}[] = [];
+    sections.push({ label: "BASE", color: AGENTS.find(a => a.id === agentId)?.color ?? T.sub, text: persona.system.slice(0, 180) + (persona.system.length > 180 ? "…" : "") });
+    const v = agentVoices[agentId];
+    if (v) {
+      const vp = [v.persona && `style: ${v.persona}`, v.genre && `genre: ${v.genre}`, v.career && `perspective: ${v.career}`].filter(Boolean).join(" · ");
+      if (vp) sections.push({ label: "VOICE", color: "#4da8ff", text: vp });
+    }
+    const insp = agentInspirations[agentId];
+    if (insp?.length) {
+      const total = insp.reduce((s, i) => s + i.weight, 0) || 1;
+      sections.push({ label: "INSPIRE", color: "#0fe898", text: insp.map(i => `${i.name} (${Math.round((i.weight/total)*100)}%)`).join(" · ") });
+    }
+    const ctx = agentCtx[agentId];
+    if (ctx?.trim()) sections.push({ label: "GOAL", color: T.body, text: ctx.trim().slice(0, 160) + (ctx.length > 160 ? "…" : "") });
+    if (directions.length) sections.push({ label: "DIRECTIONS", color: "#c89cff", text: directions.slice(0, 3).join(" · ") + (directions.length > 3 ? "…" : "") });
+    return sections;
   };
 
   // Export all five composed prompts as a single .md file
@@ -1521,7 +1568,7 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const buildAgentContext = (personaId: string): string | null => {
     return [
       agentInspirations[personaId]?.length
-        ? "INSPIRATIONS:\n" + agentInspirations[personaId].map((i: string) => `- ${i}`).join("\n")
+        ? "INSPIRATIONS:\n" + agentInspirations[personaId].map((i: {name:string;weight:number}) => `- ${i.name}`).join("\n")
         : null,
       agentCtx[personaId] || null,
       (() => {
@@ -2398,119 +2445,94 @@ ${directorSynthesis}`,
       )}
 
       {screen === "roles" && (
-        <div style={{ flex:1, overflowY:"auto", padding:"36px 24px 60px" }}>
-          <div style={{ maxWidth:680, margin:"0 auto" }}>
-            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:32, gap:16 }}>
-              <p style={{ fontFamily:T.sans, fontSize:13, color:T.sub, lineHeight:1.7, maxWidth:480 }}>
-                Add notes and voice settings for each agent. Changes are reflected live in the composed prompt.
-              </p>
-              <button
-                onClick={exportAllPrompts}
-                title="Download all five composed prompts as .md"
-                style={{ flexShrink:0, padding:"7px 14px", borderRadius:6, background:"#062b1e", border:"1px solid #0fe89830", color:"#0fe898", fontSize:11, cursor:"pointer", fontFamily:T.mono, letterSpacing:"0.06em", whiteSpace:"nowrap" }}
-              >
-                ⤴ Export all prompts
-              </button>
-            </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-              {AGENTS.map(a => (
-                <div key={a.id} style={{ background:T.surf, border:`1px solid ${T.bdr}`, borderLeft:`3px solid ${a.color}`, borderRadius:"0 8px 8px 0", padding:"18px 20px" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
-                    <span style={{ fontSize:20, color:a.color }}>{a.icon}</span>
+        <div style={{ flex:1, display:"flex", minHeight:0, overflow:"hidden" }}>
+
+          {/* ── Left agent rail ── */}
+          <div style={{ width:220, background:T.bg2, borderRight:`1px solid ${T.bdr}`, overflowY:"auto", flexShrink:0, padding:"14px 12px" }}>
+            <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.meta, letterSpacing:"0.12em", padding:"4px 10px 10px" }}>CONFIGURE ROLES</div>
+            {AGENTS.map(ag => {
+              const sel = (selectedRoleAgent || AGENTS[0].id) === ag.id;
+              const hasOverrides = !!(agentCtx[ag.id] || agentVoices[ag.id]?.persona || agentVoices[ag.id]?.genre || agentInspirations[ag.id]?.length);
+              return (
+                <button key={ag.id} onClick={() => setSelectedRoleAgent(ag.id)} style={{ width:"100%", display:"block", padding:"11px 12px", border:`1px solid ${sel ? ag.color+"88" : T.bdr2}`, borderLeft:`3px solid ${ag.color}`, background:sel ? ag.color+"10" : T.bg2, borderRadius:"0 6px 6px 0", cursor:"pointer", textAlign:"left", marginBottom:5 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ color:ag.color, fontSize:15 }}>{ag.icon}</span>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontFamily:T.mono, fontSize:11, color:a.color, marginBottom:3 }}>@{a.id}</div>
-                      <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta }}>{a.role}</div>
+                      <div style={{ fontFamily:T.sans, fontSize:12.5, fontWeight:500, color:sel ? ag.color : T.text }}>{ag.name}</div>
+                      <div style={{ fontFamily:T.mono, fontSize:9, color:ag.color+"88" }}>@{ag.id}</div>
                     </div>
-                    <div style={{ fontFamily:T.sans, fontSize:11.5, color:a.color+"66", fontStyle:"italic" }}>{a.tagline}</div>
                   </div>
-                  <textarea
-                    value={agentCtx[a.id] || ""}
-                    onChange={e => updateAgentCtx(a.id, e.target.value)}
-                    placeholder={
-                      a.id==="researcher" ? `e.g. "Focus on peer-reviewed sources. The project is about climate adaptation in coastal cities."` :
-                      a.id==="writer"     ? `e.g. "My writing voice is essayistic and first-person. Target reader is a policy professional."` :
-                      a.id==="editor"     ? `e.g. "House style: short paragraphs, no jargon, active voice. Under 800 words for drafts."` :
-                      a.id==="critic"     ? `e.g. "Be direct. Don't soften critique. I care most about logical consistency and evidence."` :
-                                            `e.g. "Final output is a 3,000 word feature pitch to editors at a major newspaper."`
-                    }
-                    rows={3}
-                    style={{ width:"100%", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:6, padding:"10px 12px", resize:"vertical", fontFamily:T.sans, fontSize:13, color:T.text, lineHeight:1.6, outline:"none" }}
-                  />
-                  {/* Voice picker — dropdowns with custom write-in */}
-                  <div style={{ borderTop:`1px solid ${T.bdr}`, paddingTop:14, marginTop:4 }}>
+                  {hasOverrides && <div style={{ marginTop:5, fontFamily:T.mono, fontSize:8, color:"#0fe898aa", letterSpacing:"0.06em" }}>● CONFIGURED</div>}
+                </button>
+              );
+            })}
+            <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${T.bdr}` }}>
+              <button onClick={exportAllPrompts} style={{ width:"100%", padding:"7px 10px", borderRadius:5, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:10, cursor:"pointer", fontFamily:T.mono, textAlign:"left" }}>⤴ export all .md</button>
+            </div>
+          </div>
+
+          {/* ── Agent detail ── */}
+          {(() => {
+            const activeId = selectedRoleAgent || AGENTS[0].id;
+            const a = AGENTS.find(ag => ag.id === activeId) ?? AGENTS[0];
+            const promptSections = buildPromptSections(a.id);
+            const insps = agentInspirations[a.id] ?? [];
+            const inspTotal = insps.reduce((s, i) => s + i.weight, 0) || 1;
+
+            return (
+              <div style={{ flex:1, display:"grid", gridTemplateColumns:"1fr 320px", minHeight:0, overflow:"hidden" }}>
+
+                {/* Detail form */}
+                <div style={{ overflowY:"auto", padding:"24px 28px 60px" }}>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:12, marginBottom:6 }}>
+                    <span style={{ color:a.color, fontSize:22 }}>{a.icon}</span>
+                    <span style={{ fontFamily:T.serif, fontSize:26, color:T.text }}>{a.name}</span>
+                    <span style={{ fontFamily:T.mono, fontSize:9, color:a.color, letterSpacing:"0.1em", border:`1px solid ${a.color}44`, padding:"2px 7px", borderRadius:3 }}>@{a.id}</span>
+                  </div>
+                  <p style={{ fontFamily:T.italic, fontSize:13, fontStyle:"italic", color:a.color+"aa", marginBottom:20, lineHeight:1.6 }}>{a.tagline}</p>
+
+                  {/* Context / goal textarea */}
+                  <div style={{ marginBottom:22 }}>
+                    <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.sub, letterSpacing:"0.12em", marginBottom:8 }}>GOAL — WHAT YOU WANT FROM @{a.id.toUpperCase()}</div>
+                    <textarea
+                      value={agentCtx[a.id] || ""}
+                      onChange={e => updateAgentCtx(a.id, e.target.value)}
+                      placeholder={
+                        a.id==="researcher" ? `e.g. "Focus on peer-reviewed sources. The project is about climate adaptation in coastal cities."` :
+                        a.id==="writer"     ? `e.g. "Produce real prose, not outlines. Stay in one consciousness per scene."` :
+                        a.id==="editor"     ? `e.g. "House style: short paragraphs, no jargon, active voice. Under 800 words."` :
+                        a.id==="critic"     ? `e.g. "Be direct. Don't soften critique. I care most about logical consistency."` :
+                                              `e.g. "Final output is a 3,000 word feature pitch to newspaper editors."`
+                      }
+                      rows={3}
+                      style={{ width:"100%", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:6, padding:"10px 12px", resize:"vertical", fontFamily:T.sans, fontSize:13, color:T.text, lineHeight:1.6, outline:"none" }}
+                    />
+                  </div>
+
+                  {/* Voice settings */}
+                  <div style={{ marginBottom:22 }}>
+                    <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.sub, letterSpacing:"0.12em", marginBottom:8 }}>VOICE SETTINGS</div>
                     {(["persona","genre","career"] as const).map(cat => {
                       const OPTS: Record<string, string[]> = {
                         persona: ["Christopher Hitchens","Joan Didion","David Foster Wallace","Zadie Smith","Malcolm Gladwell","Ta-Nehisi Coates","Hunter S. Thompson","Susan Sontag","George Orwell","Toni Morrison"],
                         genre:   ["Literary Journalism","Academic","Investigative","Gonzo","Business","Technical","Op-Ed","Lyric Essay","Narrative Non-fiction","Satire"],
                         career:  ["Investigative Reporter","Brand Strategist","Senior Editor","Academic Researcher","Ghostwriter","Film Critic","Science Journalist","Cultural Critic","Political Analyst","Copywriter"],
                       };
-                      const LABELS: Record<string, string> = {
-                        persona: "PERSONA — write like",
-                        genre:   "GENRE — style",
-                        career:  "CAREER — perspective",
-                      };
+                      const LABELS: Record<string, string> = { persona:"WRITE LIKE", genre:"GENRE", career:"PERSPECTIVE" };
                       const stored = agentVoices[a.id]?.[cat] ?? null;
                       const isPredefined = stored !== null && OPTS[cat].includes(stored);
                       const isCustom = stored !== null && !isPredefined;
-                      // dropdown value: predefined option, "__custom__" if custom, or "" for none
                       const dropdownValue = isPredefined ? stored : isCustom ? "__custom__" : "";
-
-                      const selectStyle: React.CSSProperties = {
-                        width:"100%", padding:"7px 10px", borderRadius:5,
-                        background:T.bg, border:`1px solid ${stored ? a.color+"55" : T.bdr2}`,
-                        color: stored ? a.color : T.sub,
-                        fontFamily:T.sans, fontSize:12, outline:"none",
-                        cursor:"pointer", appearance:"none" as any,
-                        backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                        backgroundRepeat:"no-repeat",
-                        backgroundPosition:"right 10px center",
-                        paddingRight:28,
-                      };
-
                       return (
-                        <div key={cat} style={{ marginBottom:12 }}>
-                          <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em", marginBottom:5 }}>
-                            {LABELS[cat]}
-                          </div>
-
-                          {/* Dropdown */}
-                          <select
-                            value={dropdownValue}
-                            onChange={e => {
-                              const v = e.target.value;
-                              if (v === "") updateAgentVoice(a.id, cat, null);
-                              else if (v === "__custom__") updateAgentVoice(a.id, cat, "");
-                              else updateAgentVoice(a.id, cat, v);
-                            }}
-                            style={selectStyle}
-                          >
+                        <div key={cat} style={{ marginBottom:10 }}>
+                          <div style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em", marginBottom:5 }}>{LABELS[cat]}</div>
+                          <select value={dropdownValue} onChange={e => { const v = e.target.value; if (v==="") updateAgentVoice(a.id, cat, null); else if (v==="__custom__") updateAgentVoice(a.id, cat, ""); else updateAgentVoice(a.id, cat, v); }} style={{ width:"100%", padding:"7px 10px", borderRadius:5, background:T.bg, border:`1px solid ${stored ? a.color+"55" : T.bdr2}`, color:stored ? a.color : T.sub, fontFamily:T.sans, fontSize:12, outline:"none", cursor:"pointer" }}>
                             <option value="">— none —</option>
-                            {OPTS[cat].map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
+                            {OPTS[cat].map(opt => <option key={opt} value={opt}>{opt}</option>)}
                             <option value="__custom__">Custom…</option>
                           </select>
-
-                          {/* Custom write-in — shown when Custom… is selected */}
                           {(dropdownValue === "__custom__" || isCustom) && (
-                            <input
-                              type="text"
-                              value={stored ?? ""}
-                              onChange={e => updateAgentVoice(a.id, cat, e.target.value || null)}
-                              placeholder={
-                                cat === "persona" ? "e.g. Ernest Hemingway" :
-                                cat === "genre"   ? "e.g. Travel writing" :
-                                                    "e.g. Food writer"
-                              }
-                              autoFocus
-                              style={{
-                                marginTop:6, width:"100%", padding:"7px 10px",
-                                borderRadius:5, background:T.bg,
-                                border:`1px solid ${a.color+"55"}`,
-                                color:a.color, fontFamily:T.sans, fontSize:12,
-                                outline:"none",
-                              }}
-                            />
+                            <input type="text" value={stored ?? ""} onChange={e => updateAgentVoice(a.id, cat, e.target.value || null)} placeholder={cat==="persona" ? "e.g. Ernest Hemingway" : cat==="genre" ? "e.g. Travel writing" : "e.g. Food writer"} autoFocus style={{ marginTop:6, width:"100%", padding:"7px 10px", borderRadius:5, background:T.bg, border:`1px solid ${a.color+"55"}`, color:a.color, fontFamily:T.sans, fontSize:12, outline:"none" }} />
                           )}
                         </div>
                       );
@@ -2518,140 +2540,84 @@ ${directorSynthesis}`,
                   </div>
 
                   {/* Inspirations */}
-                  <div style={{ borderTop:`1px solid ${T.bdr}`, marginTop:14, paddingTop:14 }}>
-                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-                      <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em" }}>
-                        INSPIRATIONS
-                      </span>
-                      <span style={{ fontFamily:T.mono, fontSize:8, color: (agentInspirations[a.id]?.length ?? 0) >= 13 ? "#ff5a5a" : "#333" }}>
-                        {agentInspirations[a.id]?.length ?? 0}/13
-                      </span>
+                  <div style={{ marginBottom:22 }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                      <span style={{ fontFamily:T.mono, fontSize:8.5, color:T.sub, letterSpacing:"0.12em" }}>INSPIRATIONS</span>
+                      <span style={{ fontFamily:T.mono, fontSize:8, color:insps.length >= 13 ? "#ff5a5a" : T.meta }}>{insps.length}/13 · weights sum to {inspTotal}</span>
                     </div>
 
-                    {/* Existing tags */}
-                    {(agentInspirations[a.id]?.length ?? 0) > 0 && (
-                      <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:8 }}>
-                        {(agentInspirations[a.id] ?? []).map((item, idx) => (
-                          <div key={idx} style={{
-                            display:"flex", alignItems:"center", gap:4,
-                            padding:"3px 8px 3px 10px",
-                            background:a.color+"18", border:`1px solid ${a.color}44`,
-                            borderRadius:99, fontSize:11,
-                          }}>
-                            <span style={{ color:a.color+"cc", fontFamily:T.sans }}>{item}</span>
-                            <button
-                              onClick={() => removeInspiration(a.id, idx)}
-                              style={{ background:"none", border:"none", cursor:"pointer", color:a.color+"88", fontSize:12, lineHeight:1, padding:"0 2px" }}
-                            >×</button>
+                    {/* Proportional bar */}
+                    {insps.length > 0 && (
+                      <div style={{ display:"flex", height:28, borderRadius:4, overflow:"hidden", border:`1px solid ${T.bdr2}`, marginBottom:12 }}>
+                        {insps.map((ins, i) => (
+                          <div key={i} title={`${ins.name}: ${Math.round((ins.weight/inspTotal)*100)}%`} style={{ width:`${(ins.weight/inspTotal)*100}%`, background:a.color, opacity:0.35 + (ins.weight/inspTotal)*0.65, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.mono, fontSize:9, color:"#000a", fontWeight:600, borderRight:i < insps.length-1 ? `1px solid ${T.bg}` : "none", overflow:"hidden", whiteSpace:"nowrap" }}>
+                            {ins.weight/inspTotal > 0.12 ? ins.name.split(" ").pop()?.slice(0,7) : ""}
                           </div>
                         ))}
                       </div>
                     )}
 
-                    {/* Add input */}
-                    {(agentInspirations[a.id]?.length ?? 0) < 13 && (
-                      <div style={{ display:"flex", gap:6 }}>
-                        <input
-                          value={inspirationInputs[a.id] ?? ""}
-                          onChange={e => setInspirationInputs(prev => ({ ...prev, [a.id]: e.target.value }))}
-                          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addInspiration(a.id, inspirationInputs[a.id] ?? ""); } }}
-                          placeholder={
-                            a.id === "researcher" ? "e.g. The Lancet, Wikipedia style, Feynman Technique" :
-                            a.id === "writer"     ? "e.g. The Great Gatsby, Joan Didion's essays" :
-                            a.id === "editor"     ? "e.g. The Elements of Style, On Writing Well" :
-                            a.id === "critic"     ? "e.g. Christopher Hitchens debates, NY Review of Books" :
-                                                    "e.g. This American Life, The New Yorker longform"
-                          }
-                          style={{
-                            flex:1, padding:"7px 10px", borderRadius:5,
-                            background:T.bg, border:`1px solid ${T.bdr2}`,
-                            color:T.text, fontFamily:T.sans, fontSize:12, outline:"none",
-                          }}
-                        />
-                        <button
-                          onClick={() => addInspiration(a.id, inspirationInputs[a.id] ?? "")}
-                          disabled={!(inspirationInputs[a.id]?.trim())}
-                          style={{
-                            padding:"7px 12px", borderRadius:5,
-                            background: inspirationInputs[a.id]?.trim() ? a.color+"22" : "none",
-                            border:`1px solid ${inspirationInputs[a.id]?.trim() ? a.color+"55" : T.bdr2}`,
-                            color: inspirationInputs[a.id]?.trim() ? a.color : T.meta,
-                            fontSize:11, cursor:"pointer", fontFamily:T.mono,
-                            transition:"all 0.15s",
-                          }}
-                        >+ add</button>
+                    {/* Inspiration cards */}
+                    {insps.length > 0 && (
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:10 }}>
+                        {insps.map((ins, idx) => (
+                          <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 48px 20px", alignItems:"center", gap:8, padding:"8px 10px", background:a.color+"0e", border:`1px solid ${a.color}33`, borderRadius:5 }}>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:12, color:T.text, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ins.name}</div>
+                              <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>{Math.round((ins.weight/inspTotal)*100)}%</div>
+                            </div>
+                            <input type="number" min={1} max={100} value={ins.weight} onChange={e => updateInspirationWeight(a.id, idx, Number(e.target.value))} style={{ width:"100%", padding:"3px 6px", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:4, color:a.color, fontFamily:T.mono, fontSize:11, outline:"none", textAlign:"right" }} />
+                            <button onClick={() => removeInspiration(a.id, idx)} style={{ background:"none", border:"none", cursor:"pointer", color:T.meta, fontSize:13, lineHeight:1 }}>×</button>
+                          </div>
+                        ))}
                       </div>
                     )}
-                    {(agentInspirations[a.id]?.length ?? 0) >= 13 && (
-                      <p style={{ fontFamily:T.mono, fontSize:9, color:"#ff3d3d88" }}>
-                        13 inspirations saved — remove one to add more.
-                      </p>
+
+                    {/* Add inspiration input */}
+                    {insps.length < 13 && (
+                      <div style={{ display:"flex", gap:6 }}>
+                        <input value={inspirationInputs[a.id] ?? ""} onChange={e => setInspirationInputs(prev => ({ ...prev, [a.id]: e.target.value }))} onKeyDown={e => { if (e.key==="Enter") { e.preventDefault(); addInspiration(a.id, inspirationInputs[a.id] ?? ""); }}} placeholder={a.id==="writer" ? "e.g. Joan Didion, Toni Morrison" : a.id==="researcher" ? "e.g. The Lancet, Feynman" : "e.g. inspiration name"} style={{ flex:1, padding:"7px 10px", borderRadius:5, background:T.bg, border:`1px solid ${T.bdr2}`, color:T.text, fontFamily:T.sans, fontSize:12, outline:"none" }} />
+                        <button onClick={() => addInspiration(a.id, inspirationInputs[a.id] ?? "")} disabled={!(inspirationInputs[a.id]?.trim())} style={{ padding:"7px 12px", borderRadius:5, background:inspirationInputs[a.id]?.trim() ? a.color+"22" : "none", border:`1px solid ${inspirationInputs[a.id]?.trim() ? a.color+"55" : T.bdr2}`, color:inspirationInputs[a.id]?.trim() ? a.color : T.meta, fontSize:11, cursor:"pointer", fontFamily:T.mono, transition:"all 0.15s" }}>+ add</button>
+                      </div>
+                    )}
+                    {insps.length >= 13 && (
+                      <p style={{ fontFamily:T.mono, fontSize:9, color:"#ff5a5a88" }}>13 inspirations saved — remove one to add more.</p>
                     )}
                   </div>
 
-                  {/* Composed prompt preview + per-agent export */}
-                  <div style={{ borderTop:`1px solid ${T.bdr}`, marginTop:14, paddingTop:12 }}>
-                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: expandedPrompt === a.id ? 10 : 0 }}>
-                      <button
-                        onClick={() => setExpandedPrompt(expandedPrompt === a.id ? null : a.id)}
-                        style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:6, padding:0 }}
-                      >
-                        <span style={{ fontFamily:T.mono, fontSize:8, color:T.meta, letterSpacing:"0.12em" }}>
-                          COMPOSED PROMPT
-                        </span>
-                        <span style={{ fontSize:9, color:T.meta }}>
-                          {expandedPrompt === a.id ? "▲" : "▼"}
-                        </span>
-                      </button>
-                      <div style={{ display:"flex", gap:6 }}>
-                        {/* Copy this agent's prompt */}
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(buildComposedPrompt(a.id));
-                          }}
-                          title="Copy composed prompt"
-                          style={{ padding:"3px 10px", borderRadius:4, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:10, cursor:"pointer", fontFamily:T.mono }}
-                        >
-                          ⎘ copy
-                        </button>
-                        {/* Export this agent's prompt as .txt */}
-                        <button
-                          onClick={() => {
-                            const text = buildComposedPrompt(a.id);
-                            const blob = new Blob([text], { type:"text/plain" });
-                            const url = URL.createObjectURL(blob);
-                            const el = document.createElement("a");
-                            el.href = url; el.download = `${a.id}-prompt.txt`; el.click();
-                            URL.revokeObjectURL(url);
-                          }}
-                          title="Download as .txt"
-                          style={{ padding:"3px 10px", borderRadius:4, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:10, cursor:"pointer", fontFamily:T.mono }}
-                        >
-                          ⤴ .txt
-                        </button>
-                      </div>
+                  <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.1em" }}>CHANGES SAVE AUTOMATICALLY</div>
+                </div>
+
+                {/* Composed prompt preview — right column */}
+                <div style={{ overflowY:"auto", padding:"24px 20px", borderLeft:`1px solid ${T.bdr}`, background:T.bg2 }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                    <span style={{ fontFamily:T.mono, fontSize:8.5, color:a.color, letterSpacing:"0.12em" }}>COMPOSED PROMPT · LIVE</span>
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={() => navigator.clipboard.writeText(buildComposedPrompt(a.id))} style={{ padding:"3px 9px", borderRadius:4, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:9, cursor:"pointer", fontFamily:T.mono }}>⎘ copy</button>
+                      <button onClick={() => { const text = buildComposedPrompt(a.id); const blob = new Blob([text], {type:"text/plain"}); const url = URL.createObjectURL(blob); const el = document.createElement("a"); el.href=url; el.download=`${a.id}-prompt.txt`; el.click(); URL.revokeObjectURL(url); }} style={{ padding:"3px 9px", borderRadius:4, background:"none", border:`1px solid ${T.bdr2}`, color:T.sub, fontSize:9, cursor:"pointer", fontFamily:T.mono }}>↓ .txt</button>
                     </div>
-                    {expandedPrompt === a.id && (
-                      <pre style={{
-                        margin:0, padding:"12px 14px",
-                        background:T.bg, border:`1px solid ${T.bdr2}`,
-                        borderLeft:`3px solid ${a.color}50`,
-                        borderRadius:"0 6px 6px 0",
-                        fontFamily:T.mono, fontSize:11, color:"#aaa",
-                        lineHeight:1.65, whiteSpace:"pre-wrap",
-                        wordBreak:"break-word", maxHeight:280, overflowY:"auto",
-                      }}>
-                        {buildComposedPrompt(a.id)}
-                      </pre>
+                  </div>
+
+                  {/* Color-coded sections */}
+                  <div style={{ background:T.bg, border:`1px solid ${a.color}33`, borderTop:`2px solid ${a.color}`, borderRadius:"0 0 6px 6px", padding:"12px 14px", fontFamily:T.mono, fontSize:11, lineHeight:1.8 }}>
+                    {promptSections.map((s, i) => (
+                      <div key={i} style={{ display:"grid", gridTemplateColumns:"72px 1fr", gap:10, padding:"4px 0", borderBottom:`1px solid ${T.bdr}` }}>
+                        <span style={{ fontSize:9, color:s.color, letterSpacing:"0.1em", paddingTop:3 }}>{s.label}</span>
+                        <span style={{ color:T.body, fontSize:11, lineHeight:1.55 }}>{s.text}</span>
+                      </div>
+                    ))}
+                    {promptSections.length === 0 && (
+                      <div style={{ color:T.meta, fontSize:10, textAlign:"center", padding:"12px 0" }}>No overrides yet — defaults apply.</div>
                     )}
                   </div>
+
+                  <p style={{ fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.06em", lineHeight:1.6, marginTop:10 }}>
+                    Settings cascade: folder lore → room stage → per-agent override. What you see above is what gets sent.
+                  </p>
                 </div>
-              ))}
-            </div>
-            <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta, marginTop:24, letterSpacing:"0.1em" }}>
-              CHANGES SAVE AUTOMATICALLY
-            </div>
-          </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
