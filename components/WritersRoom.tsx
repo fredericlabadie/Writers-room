@@ -899,6 +899,49 @@ function DashboardView({ messages, directions, artifacts, room, roomConfig }: {
   );
 }
 
+// ── Presence chips — avatar cluster shown in room header ─────────────────────
+function PresenceChips({ users }: { users: Array<{ userId: string; name: string; avatar: string | null; color: string; status: string }> }) {
+  if (!users.length) return null;
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+      <div style={{ display:"flex", alignItems:"center" }}>
+        {users.slice(0, 4).map((u, i) => (
+          <div key={u.userId} title={`${u.name} · ${u.status}`} style={{
+            width:26, height:26, borderRadius:"50%",
+            background: u.avatar ? "transparent" : u.color + "22",
+            border:`2px solid ${u.color}`,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontFamily:"'IBM Plex Mono', monospace", fontSize:10, fontWeight:600, color:u.color,
+            marginLeft: i === 0 ? 0 : -8,
+            position:"relative", zIndex:10-i,
+            boxShadow:`0 0 0 2px #131318`,
+            overflow:"hidden",
+          }}>
+            {u.avatar
+              ? <img src={u.avatar} alt={u.name} style={{ width:"100%", height:"100%", borderRadius:"50%" }} />
+              : (u.name?.[0] ?? "?").toUpperCase()
+            }
+            {/* Status dot */}
+            <span style={{
+              position:"absolute", bottom:0, right:0,
+              width:7, height:7, borderRadius:"50%",
+              background: u.status === "typing" ? "#0fe898" : u.status === "reading" ? u.color : "#5a5a62",
+              border:"1.5px solid #131318",
+              boxShadow: u.status === "typing" ? "0 0 5px #0fe89866" : "none",
+            }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+        <span style={{ width:6, height:6, borderRadius:"50%", background:"#0fe898", boxShadow:"0 0 6px #0fe89866" }} />
+        <span style={{ fontFamily:"'IBM Plex Mono', monospace", fontSize:9, color:"#0fe898", letterSpacing:"0.08em" }}>
+          LIVE · {users.length + 1}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ── Return brief — "while you were away" panel shown at top of chat ──────────
 function ReturnBrief({ brief, onDismiss, onCatchUp }: {
   brief: { directorText: string; events: any[]; awayStr: string; onYouCount: number };
@@ -1561,6 +1604,26 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [agentInspirations, setAgentInspirations] = useState<Record<string, {name:string;weight:number}[]>>({});
   const [selectedRoleAgent, setSelectedRoleAgent] = useState<string>("");
 
+  // ── Presence ─────────────────────────────────────────────────────────────
+  interface PresenceUser {
+    userId: string;
+    name: string;
+    avatar: string | null;
+    color: string;
+    status: "reading" | "typing" | "idle";
+    joinedAt: string;
+  }
+  const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
+  const presenceChannelRef = useRef<any>(null);
+
+  // Deterministic collaborator color from userId
+  const presenceColor = useCallback((uid: string): string => {
+    const COLORS = ["#ff8a5c", "#5cdaff", "#a78bfa", "#4ade80", "#f472b6", "#fbbf24", "#34d399"];
+    let h = 0;
+    for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) & 0xffffffff;
+    return COLORS[Math.abs(h) % COLORS.length];
+  }, []);
+
   // ── Async return brief ────────────────────────────────────────────────────
   interface ReturnBriefData {
     directorText: string;
@@ -1780,9 +1843,49 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
       )
       .subscribe();
 
+    // ── Presence channel ───────────────────────────────────────────────────
+    // Tracks who is in the room and whether they're typing or reading.
+    if (!isReadOnly && currentUser.id) {
+      const presenceCh = supabase
+        .channel(`room-presence-${room.id}`, { config: { presence: { key: currentUser.id } } })
+        .on("presence", { event: "sync" }, () => {
+          const state = presenceCh.presenceState() as Record<string, any[]>;
+          const users: PresenceUser[] = Object.entries(state)
+            .flatMap(([, metas]) => metas)
+            .filter((u: any) => u.userId !== currentUser.id) // exclude self
+            .map((u: any) => ({
+              userId: u.userId,
+              name: u.name ?? "Anonymous",
+              avatar: u.avatar ?? null,
+              color: u.color ?? "#5cdaff",
+              status: u.status ?? "reading",
+              joinedAt: u.joinedAt ?? new Date().toISOString(),
+            }));
+          setPresenceUsers(users);
+        })
+        .subscribe(async (status: string) => {
+          if (status === "SUBSCRIBED") {
+            await presenceCh.track({
+              userId: currentUser.id,
+              name: currentUser.name,
+              avatar: currentUser.image,
+              color: presenceColor(currentUser.id),
+              status: "reading",
+              joinedAt: new Date().toISOString(),
+            });
+          }
+        });
+
+      presenceChannelRef.current = presenceCh;
+    }
+
     return () => {
       window.removeEventListener("resize", check);
       supabase.removeChannel(channel);
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
     };
   }, [room.id]);
 
@@ -2655,7 +2758,8 @@ ${directorSynthesis}`,
               </div>
             )}
 
-            {/* View mode tabs — only shown in chat screen */}
+            {/* Presence chips — other users in the room */}
+            <PresenceChips users={presenceUsers} />
             {screen === "chat" && messages.length > 0 && (
               <div style={{ display:"flex", background:T.bg, border:`1px solid ${T.bdr2}`, borderRadius:5, padding:2, gap:0, flexShrink:0 }}>
                 {(["chat", "studio", "dashboard"] as const).map(mode => {
@@ -2774,7 +2878,18 @@ ${directorSynthesis}`,
                 <textarea
                   ref={inputRef}
                   value={input}
-                  onChange={e => setInput(e.target.value)}
+                  onChange={e => {
+                    setInput(e.target.value);
+                    // Update presence status: typing when input has content
+                    if (presenceChannelRef.current) {
+                      presenceChannelRef.current.track({
+                        userId: currentUser.id, name: currentUser.name,
+                        avatar: currentUser.image, color: presenceColor(currentUser.id),
+                        status: e.target.value.trim() ? "typing" : "reading",
+                        joinedAt: new Date().toISOString(),
+                      }).catch(() => {});
+                    }
+                  }}
                   onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                   placeholder={isMobile
                     ? {
@@ -3016,7 +3131,27 @@ ${directorSynthesis}`,
           {/* Input bar */}
           <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:`linear-gradient(transparent, ${T.bg} 36%)`, padding:"28px 24px 20px" }}>
             <div style={{ maxWidth:720, margin:"0 auto" }}>
-          {/* Token counter + length toggle */}
+
+          {/* Write-lock: agent generating */}
+          {Object.keys(loading).length > 0 && presenceUsers.length > 0 && (
+            <div style={{ marginBottom:6, display:"flex", alignItems:"center", gap:6, fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.08em" }}>
+              <span style={{ width:5, height:5, borderRadius:"50%", background:"#0fe898", boxShadow:"0 0 5px #0fe89866" }} />
+              {Object.keys(loading).map(p => `@${p}`).join(", ")} generating — room is active
+            </div>
+          )}
+
+          {/* Typing indicators from other users */}
+          {presenceUsers.filter(u => u.status === "typing").map(u => (
+            <div key={u.userId} style={{ marginBottom:6, display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ width:6, height:6, borderRadius:"50%", background:u.color, boxShadow:`0 0 5px ${u.color}66` }} />
+              <span style={{ fontFamily:T.mono, fontSize:9, color:u.color, letterSpacing:"0.08em" }}>
+                ● {u.name.toUpperCase()} IS COMPOSING — VISIBLE TO ROOM
+              </span>
+              <span style={{ display:"inline-flex", gap:2, marginLeft:4 }}>
+                {[0,1,2].map(i => <span key={i} style={{ width:3, height:3, borderRadius:"50%", background:u.color, opacity:0.5 + i*0.2 }} />)}
+              </span>
+            </div>
+          ))}
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
             {/* Estimated token count */}
             {input.length > 0 && (() => {
@@ -3058,7 +3193,18 @@ ${directorSynthesis}`,
                 <textarea
                   ref={inputRef}
                   value={input}
-                  onChange={e => setInput(e.target.value)}
+                  onChange={e => {
+                    setInput(e.target.value);
+                    // Update presence status: typing when input has content
+                    if (presenceChannelRef.current) {
+                      presenceChannelRef.current.track({
+                        userId: currentUser.id, name: currentUser.name,
+                        avatar: currentUser.image, color: presenceColor(currentUser.id),
+                        status: e.target.value.trim() ? "typing" : "reading",
+                        joinedAt: new Date().toISOString(),
+                      }).catch(() => {});
+                    }
+                  }}
                   onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                   placeholder={isReadOnly ? "Read-only review mode — sign in to chat" : "Type… @agent parallel · @a → @b chain · TAB to cycle"}
                   disabled={isReadOnly}
