@@ -1699,12 +1699,12 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
           // Show a "while you were away" brief if returning after 2+ hours
           const lsKey = `wr-last-seen-${room.id}`;
           const lastSeenRaw = localStorage.getItem(lsKey);
-          const now = Date.now();
+          const loadTime = Date.now();
           const TWO_HOURS = 2 * 60 * 60 * 1000;
 
           if (lastSeenRaw) {
             const lastSeen = Number(lastSeenRaw);
-            const awayMs = now - lastSeen;
+            const awayMs = loadTime - lastSeen;
 
             if (awayMs > TWO_HOURS) {
               const unseenMsgs = msgs.filter((m: Message) => new Date(m.created_at).getTime() > lastSeen);
@@ -1742,8 +1742,8 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
                 const onYouCount = events.filter((e: any) => e.onYou).length;
 
                 // Format away duration
-                const awayH = Math.floor(awayMs / 3600000);
-                const awayM = Math.floor((awayMs % 3600000) / 60000);
+                const awayH = Math.floor(awayMs / 3_600_000);
+                const awayM = Math.floor((awayMs % 3_600_000) / 60_000);
                 const awayStr = awayH > 0 ? `${awayH}h ${awayM}m` : `${awayM}m`;
 
                 // Generate Director's narrative
@@ -1764,9 +1764,10 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
             }
           }
 
-          // Update last-seen timestamp
-          localStorage.setItem(lsKey, String(now));
         }
+
+          // Update last-seen timestamp (always — enables brief on next visit)
+          try { localStorage.setItem(lsKey, String(loadTime)); } catch {}
       });
 
     fetch(`/api/artifacts?roomId=${room.id}`)
@@ -1865,14 +1866,16 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
         })
         .subscribe(async (status: string) => {
           if (status === "SUBSCRIBED") {
-            await presenceCh.track({
-              userId: currentUser.id,
-              name: currentUser.name,
-              avatar: currentUser.image,
-              color: presenceColor(currentUser.id),
-              status: "reading",
-              joinedAt: new Date().toISOString(),
-            });
+            try {
+              await presenceCh.track({
+                userId: currentUser.id,
+                name: currentUser.name,
+                avatar: currentUser.image,
+                color: presenceColor(currentUser.id),
+                status: "reading",
+                joinedAt: new Date().toISOString(),
+              });
+            } catch { /* presence unavailable — non-fatal */ }
           }
         });
 
@@ -2290,6 +2293,7 @@ ${directorSynthesis}`,
     const userMsg: Message = { ...saved, role: "user", user_name: currentUser.name, user_avatar: currentUser.image };
     setMessages(prev => [...prev, userMsg]);
     userTurnCount.current += 1;
+    isDemoRef.current = false; // real message — re-enable interventions
     setReturnBrief(null); // dismiss brief on first user interaction
     try { localStorage.setItem(`wr-last-seen-${room.id}`, String(Date.now())); } catch {}
     setScreen("chat");
@@ -2416,6 +2420,7 @@ ${directorSynthesis}`,
 
   // ── Director auto-interventions ──────────────────────────────────────────
   const maybeFireIntervention = useCallback(async (personaId: string, agentText: string, msgId: string) => {
+    if (isDemoRef.current) return; // don't fire interventions during demo
     const turn = userTurnCount.current;
     // Rate limit: no intervention if last one was within 10 turns
     if (turn - lastInterventionTurn < 10) return;
@@ -2583,7 +2588,9 @@ ${directorSynthesis}`,
   };
 
   // Load demo conversation
+  const isDemoRef = useRef(false);
   const loadDemo = () => {
+    isDemoRef.current = true;
     const demos: Record<string, Message[]> = {
       writers: [
         { id:"d1", role:"user", content:"@researcher — what are the key tensions in the slow journalism movement?", created_at:now(), user_name:currentUser.name },

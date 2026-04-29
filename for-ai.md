@@ -221,7 +221,7 @@ All three support **minimize** (▾/▸ hover button) and **delete with confirm*
 - Room-specific researcher agents: `@intel` (job hunt), `@analyst` (career), `@reader` (publishing)
 - `@drafter` agent for career room (replaces generic `@writer`)
 - Bug fix: `room_type` was never saved on room creation (was always defaulting to `writers`)
-- **Review links + ⌘K search**:
+- **Review links + ⌘K search** (requires `docs/11-review-links.sql` run in Supabase):
   - `review_links` table (see `docs/11-review-links.sql`)
   - `POST /api/review` — creates a 72h read-only share link for a room
   - `GET /api/r/[token]` — validates token, returns room + messages snapshot
