@@ -236,7 +236,6 @@ Always produce the actual document, not a description of what it should say.`,
 
 Lead with the reader's desire, not the author's achievement.`,
   },
-};
 
   // ── Job Hunt — Intel (replaces researcher) ────────────────────────────────
   intel: {
@@ -296,6 +295,7 @@ CLAIM: / EVIDENCE: / SOURCE QUALITY: format when making market or readership cla
 
 Your job is to ask: does this book deliver what readers in this category are actually looking for?`,
   },
+};
 
 // ── Room type definitions ─────────────────────────────────────────────────────
 
