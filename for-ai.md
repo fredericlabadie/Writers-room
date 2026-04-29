@@ -119,18 +119,40 @@ GET  /api/spotify/audio-features       Proxy Spotify audio features
 
 ## Key patterns in WritersRoom.tsx
 
-**Theme tokens** — all colors/fonts live in `const T` at the top. Never hardcode colors elsewhere in the component.
+**Theme tokens** — all colors/fonts live in `const T` at the top. Never hardcode colors elsewhere in the component. The full token set (as of Claude Design v2):
 
-**Agent rendering** — three component types:
-- `UserMessage` — right-aligned, grey
-- `AgentMessage` — left-aligned, color-coded by agent
-- `DirectorMessage` — full-bleed synthesis block with chain button
+```ts
+T.bg    = "#0a0a0c"   // app background (slight blue tint vs old #0a0a0a)
+T.bg2   = "#0e0e11"   // inset / placeholder (NEW)
+T.surf  = "#131318"   // card / panel surface
+T.surf2 = "#1a1a20"   // raised surface
+T.bdr   = "#23232a"   // default border
+T.bdr2  = "#2e2e36"   // stronger border
+T.text  = "#e5e5ea"   // primary text
+T.body  = "#b8b8c0"   // body text inside messages (NEW)
+T.sub   = "#8a8a92"   // subdued text
+T.meta  = "#5a5a62"   // meta / labels (darker than before)
+T.faint = "#3a3a42"   // decorative dividers (NEW)
+T.mono  = IBM Plex Mono
+T.sans  = IBM Plex Sans
+T.serif = DM Serif Display (NEW — Director synthesis, room names, display moments)
+T.italic = Source Serif Pro italic (NEW — Writer manuscript voice)
+```
+
+**Agent rendering** — five voice-distinct component types, all inside `AgentMessage` (which branches by `msg.persona`):
+- `UserMessage` — right-aligned, grey bubble
+- `AgentMessage (writer)` — `Source Serif Pro italic`, 17px, 1.9 leading, left-ruled with manuscript margin mark
+- `AgentMessage (researcher/intel/analyst/reader)` — `IBM Plex Mono` block with source footer
+- `AgentMessage (editor)` — `IBM Plex Sans`, REVISION label, left-ruled gold border
+- `AgentMessage (critic)` — dashed border, indented 56px, CHALLENGE/dissent label
+- `AgentMessage (default)` — clean left-ruled block for all other agents
+- `DirectorMessage` — full-bleed synthesis block with `DM Serif Display` body, chain button
 
 All three support **minimize** (▾/▸ hover button) and **delete with confirm** (× → "delete? [no] [yes]" inline).
 
 **Collapse state** — `collapsedMsgs: Set<string>` in component state. Not persisted to DB, local only.
 
-**Notes panel** — `notesOpen` boolean toggles a 30% width right panel. Auto-saves via debounced PATCH to `/api/rooms/[roomId]` 2s after keystroke.
+**Directions panel** — horizontal strip pinned between header and chat when directions exist. Shows inline chips with Director `◎` icon, italic text excerpt, and "injected into every call" label. Previously a vertical list — now a single-row overflow-hidden strip matching the design artboard.
 
 **Export** — `handleExport()` checks `hasCalendarAccess`; Google users → POST (Drive), others → GET (.md download).
 
@@ -155,10 +177,18 @@ All three support **minimize** (▾/▸ hover button) and **delete with confirm*
 - Room notes panel (`notes` column on rooms, collapsible UI, auto-save)
 - Dual export (GET=.md, POST=Google Drive)
 - Message delete confirmation + minimize/expand on all message types
-- Design pass: login page (agent icons, fade-up, loading states), rooms dashboard (left color borders per room type, rich empty state), WritersRoom header (sans-serif room name, pill badges)
 - Room-specific researcher agents: `@intel` (job hunt), `@analyst` (career), `@reader` (publishing)
 - `@drafter` agent for career room (replaces generic `@writer`)
 - Bug fix: `room_type` was never saved on room creation (was always defaulting to `writers`)
+- **Claude Design v2 pass** (latest):
+  - New color palette — blue-tinted darks, updated token names (`bg2`, `body`, `faint`)
+  - Agent colors: critic `#ff3d3d` → `#ff5a5a`, director `#c030ff` → `#c89cff`
+  - Two new font families: `DM Serif Display` (Director synthesis, display moments) and `Source Serif Pro italic` (Writer manuscript voice)
+  - `AgentMessage` now branches per persona into five voice-distinct treatments (manuscript / research note / redline / dissent / default)
+  - `DirectorMessage` body uses `DM Serif Display` 20px
+  - `DirectionsPanel` redesigned: vertical list → horizontal inline chip strip
+  - Login page redesigned: single-column fade-up → two-column grid with serif headline, ambient grid background, Director preview card, feature list
+  - Rooms page: serif font on room card names, updated token values throughout
 
 ---
 

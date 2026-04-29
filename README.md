@@ -37,6 +37,8 @@ When `@director` synthesizes, the **Next move** line becomes a clickable chain b
 
 ## Features
 
+**Voice-distinct typography** — each agent's messages render with their own typographic treatment. The Writer's prose is serif italic with generous leading. The Researcher's notes are monospace with a source footer. The Editor's revisions use a track-changes left border. The Critic's objections are indented with a dashed border. The Director's syntheses use a display serif at 20px. You can identify who's speaking from the shape of the message alone.
+
 **Multi-agent orchestration** — parallel calls, sequential chains, and director-driven chains. Each agent in a chain receives a role-specific handoff prompt (the editor knows it's editing a draft, not starting from scratch). The full room history is injected into every call so agents never lose context.
 
 **Vector RAG** — upload reference files (`.txt`, `.md`, `.json`, `.csv`) to a room. Chunks are embedded and retrieved at call time; the most relevant passages are injected into each agent's context automatically.
