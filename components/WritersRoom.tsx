@@ -613,6 +613,35 @@ function DirectorMessage({ msg, onDelete, onSave, onContinue, canSave, reactions
   );
 }
 
+// ── Director auto-intervention note — rendered anchored below a message ──────
+function InterventionNote({ intervention, onDismiss, onAcceptPin, onSaveDirection }: {
+  intervention: { id: string; type: string; color: string; glyph: string; kind: string; text: string; dismissed: boolean };
+  onDismiss: (id: string) => void;
+  onAcceptPin: (id: string, text: string) => void;
+  onSaveDirection: (text: string) => void;
+}) {
+  if (intervention.dismissed) return null;
+  const { color, glyph, kind, text, id } = intervention;
+
+  const btnBase: React.CSSProperties = { fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.06em", padding: "3px 9px", borderRadius: 3, cursor: "pointer", border: "none" };
+
+  return (
+    <div style={{ marginLeft: 24, marginBottom: 18, padding: "10px 12px", background: color + "10", border: `1px solid ${color}44`, borderLeft: `2px solid ${color}`, borderRadius: "0 5px 5px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+        <span style={{ color, fontSize: 11 }}>{glyph}</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color, letterSpacing: "0.1em" }}>◎ @DIRECTOR · {kind}</span>
+        <button onClick={() => onDismiss(id)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "#5a5a62", fontSize: 13, lineHeight: 1 }}>×</button>
+      </div>
+      <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 13, lineHeight: 1.55, color: "#e5e5ea", marginBottom: 9 }}>{text}</div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+        <button onClick={() => { onSaveDirection(text); onDismiss(id); }} style={{ ...btnBase, background: color, color: "#0a0a0c", fontWeight: 600 }}>Pin it →</button>
+        <button onClick={() => onDismiss(id)} style={{ ...btnBase, background: "transparent", color, border: `1px solid ${color}66` }}>Noted — dismiss</button>
+        <button onClick={() => onDismiss(id)} style={{ ...btnBase, background: "transparent", color: "#5a5a62", border: "1px solid #2e2e36" }}>Not now</button>
+      </div>
+    </div>
+  );
+}
+
 // Message router
 function MsgComponent({ msg, onDelete, onSave, onContinue, canSave, reactions, onReact, onCallChain, agents, collapsed, onToggleCollapse }: {
   msg: Message;
@@ -1132,6 +1161,23 @@ export default function WritersRoom({ room: initialRoom, currentUser, reviewScop
   const [agentCtx, setAgentCtx] = useState<Record<string, string>>({});
   const [agentVoices, setAgentVoices] = useState<Record<string, { persona: string|null; genre: string|null; career: string|null }>>({});
   const [directions, setDirections] = useState<string[]>([]);
+
+  // ── Director auto-interventions ──────────────────────────────────────────
+  type InterventionType = "hedge_word" | "thread_drift" | "pattern_working";
+  interface Intervention {
+    id: string;
+    type: InterventionType;
+    color: string;
+    glyph: string;
+    kind: string;
+    text: string;
+    triggerMsgId: string;
+    suggestedPin?: string;
+    dismissed: boolean;
+  }
+  const [interventions, setInterventions] = useState<Intervention[]>([]);
+  const [lastInterventionTurn, setLastInterventionTurn] = useState(0);
+  const userTurnCount = useRef(0);
   const [expandedPrompt, setExpandedPrompt] = useState<string | null>(null);
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
   const [agentInspirations, setAgentInspirations] = useState<Record<string, {name:string;weight:number}[]>>({});
@@ -1680,6 +1726,7 @@ ${directorSynthesis}`,
     if (saved.id) seenIds.current.add(saved.id);
     const userMsg: Message = { ...saved, role: "user", user_name: currentUser.name, user_avatar: currentUser.image };
     setMessages(prev => [...prev, userMsg]);
+    userTurnCount.current += 1;
     setScreen("chat");
 
     const { mode, calls } = parseCallSyntax(text);
@@ -1747,6 +1794,8 @@ ${directorSynthesis}`,
         };
         setMessages(prev => [...prev, agentMsg]);
         if (personaId === "scheduler") parseScheduleBlocks(agentText, agentMsg.id);
+        // Check for intervention triggers (rate-limited to 1 per 10 turns)
+        maybeFireIntervention(personaId, agentText, agentMsg.id);
         return agentText;
       } catch {
         injectDirectorMessage(`@${personaId} ran into trouble getting through — a network hiccup or a timeout. Try calling them again.`, "warning");
@@ -1784,6 +1833,7 @@ ${directorSynthesis}`,
 
   // Delete a message from local state
   const deleteMsg = (id: string) => setMessages(prev => prev.filter(m => m.id !== id));
+  const dismissIntervention = (id: string) => setInterventions(prev => prev.map(i => i.id === id ? { ...i, dismissed: true } : i));
 
   // Inject an ephemeral Director message into the chat (not persisted to DB)
   const injectDirectorMessage = useCallback((content: string, variant?: "error" | "warning" | "info") => {
@@ -1798,6 +1848,86 @@ ${directorSynthesis}`,
     setMessages(prev => [...prev, msg]);
     setScreen("chat");
   }, []);
+
+  // ── Director auto-interventions ──────────────────────────────────────────
+  const maybeFireIntervention = useCallback(async (personaId: string, agentText: string, msgId: string) => {
+    const turn = userTurnCount.current;
+    // Rate limit: no intervention if last one was within 10 turns
+    if (turn - lastInterventionTurn < 10) return;
+
+    const HEDGE_WORDS = ["just", "only", "really", "very", "actually", "basically"];
+    const dirColor = "#c89cff";
+
+    let triggerType: "hedge_word" | "thread_drift" | "pattern_working" | null = null;
+    let ctx: any = null;
+    let color = dirColor;
+    let glyph = "◎";
+    let kind = "";
+
+    // Trigger 1: hedge words in writer output
+    if (personaId === "writer" || personaId === "drafter") {
+      for (const word of HEDGE_WORDS) {
+        const re = new RegExp(`\\b${word}\\b`, "gi");
+        const count = (agentText.match(re) ?? []).length;
+        if (count >= 3) {
+          triggerType = "hedge_word";
+          ctx = { triggerText: agentText, hedgeWord: word, count };
+          color = dirColor; glyph = "◎"; kind = "PATTERN NOTICED";
+          break;
+        }
+      }
+    }
+
+    // Trigger 2: thread drift — every 20 user turns
+    if (!triggerType && turn > 0 && turn % 20 === 0) {
+      triggerType = "thread_drift";
+      const recentMessages = messages.slice(-12);
+      const recentSummary = recentMessages
+        .filter(m => m.content.length > 20)
+        .map(m => m.content.slice(0, 60).replace(/\n/g, " "))
+        .join(" · ");
+      ctx = { turnCount: turn, recentSummary };
+      color = "#f5b041"; glyph = "◬"; kind = "STRUCTURAL CHECK-IN";
+    }
+
+    // Trigger 3: critic naming something that works
+    if (!triggerType && personaId === "critic") {
+      const positiveSignals = ["works", "right move", "strong", "earned", "the move", "this is it", "exactly"];
+      const lower = agentText.toLowerCase();
+      if (positiveSignals.some(p => lower.includes(p))) {
+        triggerType = "pattern_working";
+        ctx = { criticText: agentText, agentId: "writer" };
+        color = "#5cdaff"; glyph = "◐"; kind = "PATTERN · WHAT'S WORKING";
+      }
+    }
+
+    if (!triggerType) return;
+
+    // Generate Director's voiced text
+    try {
+      const res = await fetch("/api/director/intervene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: triggerType, context: ctx }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const text = data.text?.trim();
+      if (!text) return;
+
+      setInterventions(prev => [...prev, {
+        id: `int-${Date.now()}`,
+        type: triggerType!,
+        color,
+        glyph,
+        kind,
+        text,
+        triggerMsgId: msgId,
+        dismissed: false,
+      }]);
+      setLastInterventionTurn(turn);
+    } catch { /* silent fail — interventions are optional */ }
+  }, [lastInterventionTurn, messages]);
 
   // Parse ```schedule JSON blocks from scheduler agent responses
   const parseScheduleBlocks = (text: string, msgId: string) => {
@@ -2294,6 +2424,17 @@ ${directorSynthesis}`,
               {messages.map(msg => (
                 <div key={msg.id} className="msg-in">
                   <MsgComponent msg={msg} onDelete={deleteMsg} onSave={saveDirection} onContinue={continueFromDirector} canSave={directions.length < 5} reactions={messageReactions[msg.id] ?? []} onReact={toggleReaction} onCallChain={callDirectorChain} agents={AGENTS} collapsed={collapsedMsgs.has(msg.id)} onToggleCollapse={toggleCollapse} />
+                  {interventions
+                    .filter(i => i.triggerMsgId === msg.id && !i.dismissed)
+                    .map(intervention => (
+                      <InterventionNote
+                        key={intervention.id}
+                        intervention={intervention}
+                        onDismiss={dismissIntervention}
+                        onAcceptPin={dismissIntervention}
+                        onSaveDirection={saveDirection}
+                      />
+                    ))}
                 </div>
               ))}
 
