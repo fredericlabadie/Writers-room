@@ -2,7 +2,7 @@
 
 A collaborative AI workspace where multiple specialized agents help you write, research, edit, and think — together.
 
-![Writers Room](./screenshot.png)
+![Writers Room](./WritersRoom.png)
 
 **Live:** [writersroom.fredericlabadie.com](https://writersroom.fredericlabadie.com)
 
