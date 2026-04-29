@@ -221,6 +221,13 @@ All three support **minimize** (▾/▸ hover button) and **delete with confirm*
 - Room-specific researcher agents: `@intel` (job hunt), `@analyst` (career), `@reader` (publishing)
 - `@drafter` agent for career room (replaces generic `@writer`)
 - Bug fix: `room_type` was never saved on room creation (was always defaulting to `writers`)
+- **Review links + ⌘K search**:
+  - `review_links` table (see `docs/11-review-links.sql`)
+  - `POST /api/review` — creates a 72h read-only share link for a room
+  - `GET /api/r/[token]` — validates token, returns room + messages snapshot
+  - `/app/r/[token]/page.tsx` — public read-only page with voice-distinct rendering, expiry banner, read-only footer
+  - `GET /api/search?q=...&roomId=...` — searches messages across all user rooms (ilike), returns thisRoom + otherRooms groups
+  - CommandPalette upgraded: real search input, debounced 200ms, results grouped by room, keyboard nav (↑↓↵), falls back to action list when no query
 - **Folder system**:
   - `folders`, `folder_members`, `folder_pins` tables; `rooms.folder_id` FK
   - Full API layer (`/api/folders`, `/api/folders/[id]`, `/api/folders/[id]/pins`)

@@ -828,61 +828,202 @@ function NotesPanel({ notes, onChange, saving, onClose }: {
 }
 
 // Command palette
-function CommandPalette({ onClose, onScreen, onClear, onDemo, onModal, onExport }: {
+function CommandPalette({ onClose, onScreen, onClear, onDemo, onModal, onExport, roomId }: {
   onClose: () => void;
   onScreen: (s: Screen) => void;
   onClear: () => void;
   onDemo: () => void;
   onModal: (m: Modal) => void;
   onExport: () => void;
+  roomId: string;
 }) {
-  const items = [
-    { icon:"⚙",  label:"Configure roles",         sub:"add context for each agent",       fn: () => { onScreen("roles"); onClose(); } },
-    { icon:"▶",  label:"Load demo conversation",   sub:"slow journalism example",           fn: () => { onDemo(); onClose(); } },
-    { icon:"⤴",  label:"Export session as .md",    sub:"download full chat log + artifacts", fn: () => { onExport(); onClose(); } },
-    { icon:"◈",  label:"Manage artifacts",         sub:"upload reference files for RAG",    fn: () => { onModal("artifacts"); onClose(); } },
-    { icon:"🎵", label:"Set section tone",         sub:"extract mood from Spotify track",   fn: () => { onModal("tone"); onClose(); } },
-    { icon:"◎",  label:"NotebookLM bridge",        sub:"link notebook & export Lore Pack",  fn: () => { onModal("notebooklm"); onClose(); } },
-    { icon:"⊡",  label:"Share review link",        sub:"read-only link, expires in 72h",   fn: () => { onModal("review"); onClose(); } },
-    { icon:"⌫",  label:"Clear conversation",       sub:"delete all messages",               fn: () => { onClear(); onClose(); } },
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ thisRoom: any[]; otherRooms: any[] }>({ thisRoom: [], otherRooms: [] });
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const ACTIONS = [
+    { icon:"⚙",  label:"Configure roles",       sub:"add context for each agent",       fn: () => { onScreen("roles"); onClose(); } },
+    { icon:"⤴",  label:"Export session",         sub:"download full chat log as .md",    fn: () => { onExport(); onClose(); } },
+    { icon:"◈",  label:"Manage artifacts",       sub:"upload reference files for RAG",   fn: () => { onModal("artifacts"); onClose(); } },
+    { icon:"🎵", label:"Set section tone",       sub:"extract mood from Spotify track",  fn: () => { onModal("tone"); onClose(); } },
+    { icon:"◎",  label:"NotebookLM bridge",      sub:"link notebook & export Lore Pack", fn: () => { onModal("notebooklm"); onClose(); } },
+    { icon:"⊡",  label:"Share review link",      sub:"read-only link, expires in 72h",  fn: () => { onModal("review"); onClose(); } },
+    { icon:"⌫",  label:"Clear conversation",     sub:"delete all messages",              fn: () => { onClear(); onClose(); } },
   ];
 
+  const AGENT_COLORS_LOCAL: Record<string, string> = {
+    researcher:"#0fe898", intel:"#0fe898", analyst:"#0fe898", reader:"#0fe898",
+    writer:"#4da8ff", drafter:"#4da8ff", editor:"#ffca00", critic:"#ff5a5a", director:"#c89cff",
+  };
+  const AGENT_ICONS_LOCAL: Record<string, string> = {
+    researcher:"◈", intel:"◐", analyst:"◑", reader:"◫",
+    writer:"✦", drafter:"◧", editor:"⌘", critic:"⚡", director:"◎",
+  };
+
+  // Debounced search
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    if (query.length < 2) { setResults({ thisRoom: [], otherRooms: [] }); return; }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&roomId=${roomId}`);
+        if (res.ok) setResults(await res.json());
+      } finally { setSearching(false); }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query, roomId]);
+
+  const hasResults = results.thisRoom.length > 0 || results.otherRooms.length > 0;
+  const showActions = !hasResults;
+
+  // Keyboard nav
+  useEffect(() => {
+    const totalItems = showActions ? ACTIONS.length : results.thisRoom.length + results.otherRooms.length;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key === "ArrowDown") { e.preventDefault(); setSelected(s => Math.min(s + 1, totalItems - 1)); }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setSelected(s => Math.max(s - 1, 0)); }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (showActions) { ACTIONS[selected]?.fn(); return; }
+        const allResults = [...results.thisRoom, ...results.otherRooms];
+        const item = allResults[selected];
+        if (item) { router.push(`/rooms/${item.room_id}`); onClose(); }
+      }
+    };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  }, [onClose, selected, showActions, results, ACTIONS]);
+
+  useEffect(() => { setSelected(0); }, [query]);
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 30); }, []);
+
+  const formatSnippet = (text: string, q: string) => {
+    if (!q) return text;
+    const idx = text.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark style={{ background: "#4da8ff33", color: "#4da8ff", borderRadius: 2 }}>{text.slice(idx, idx + q.length)}</mark>
+        {text.slice(idx + q.length)}
+      </>
+    );
+  };
 
   return (
-    <div onClick={onClose} style={{
-      position:"fixed", inset:0, background:"#000000bb", zIndex:500,
-      display:"flex", alignItems:"center", justifyContent:"center",
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width:460, background:T.surf2, border:`1.5px solid ${T.bdr2}`,
-        borderRadius:12, overflow:"hidden", boxShadow:"0 24px 64px #000",
-      }}>
-        <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.bdr}`, display:"flex", alignItems:"center", gap:8 }}>
-          <span style={{ fontFamily:T.mono, fontSize:11, color:T.sub }}>⌘K</span>
-          <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta, marginLeft:4 }}>COMMAND PALETTE</span>
-          <span style={{ marginLeft:"auto", fontFamily:T.mono, fontSize:9, color:T.meta }}>ESC to close</span>
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(6,6,9,0.78)", backdropFilter:"blur(6px)", zIndex:500, display:"flex", alignItems:"flex-start", justifyContent:"center", paddingTop: 80 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 640, background:T.surf, border:`1px solid ${T.bdr2}`, borderRadius:10, boxShadow:"0 30px 80px rgba(0,0,0,0.6)", overflow:"hidden", maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
+
+        {/* Search input */}
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.bdr}`, flexShrink:0 }}>
+          <span style={{ fontFamily:T.mono, fontSize:12, color:T.meta }}>⌘K</span>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search messages, or type a command…"
+            style={{ flex:1, background:"none", border:"none", outline:"none", fontFamily:T.sans, fontSize:16, color:T.text, caretColor:T.text }}
+          />
+          {searching && <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>…</span>}
+          <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta }}>ESC</span>
         </div>
-        {items.map((item, i) => (
-          <button key={i} onClick={item.fn} style={{
-            width:"100%", background:"none", border:"none",
-            borderBottom: i < items.length - 1 ? `1px solid ${T.bdr}` : "none",
-            padding:"12px 18px", cursor:"pointer", textAlign:"left",
-            display:"flex", alignItems:"center", gap:14,
-          }}
-          onMouseEnter={e => (e.currentTarget.style.background = T.surf)}
-          onMouseLeave={e => (e.currentTarget.style.background = "none")}>
-            <span style={{ fontSize:15, color:T.sub, width:22, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
-            <div>
-              <div style={{ fontFamily:T.sans, fontSize:13, color:T.text, marginBottom:2 }}>{item.label}</div>
-              <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.meta }}>{item.sub}</div>
+
+        {/* Results */}
+        <div style={{ overflowY:"auto" }}>
+          {/* Message results — this room */}
+          {results.thisRoom.length > 0 && (
+            <>
+              <div style={{ padding:"8px 20px 4px", fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.12em", background:T.bg2, borderTop:`1px solid ${T.bdr}` }}>
+                MESSAGES IN THIS ROOM · {results.thisRoom.length}
+              </div>
+              {results.thisRoom.map((item, i) => {
+                const color = AGENT_COLORS_LOCAL[item.persona ?? ""] ?? T.sub;
+                const icon = item.role === "user" ? "◍" : (AGENT_ICONS_LOCAL[item.persona ?? ""] ?? "◉");
+                const sel = i === selected;
+                return (
+                  <button key={item.id} onClick={() => { router.push(`/rooms/${item.room_id}`); onClose(); }} style={{ display:"grid", gridTemplateColumns:"24px 1fr", gap:12, alignItems:"flex-start", padding:"11px 20px", width:"100%", background:sel ? T.surf2 : "transparent", border:"none", borderLeft:`2px solid ${sel ? color : "transparent"}`, cursor:"pointer", textAlign:"left" }}>
+                    <span style={{ color: item.role === "user" ? T.sub : color, fontSize:13, marginTop:2 }}>{icon}</span>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.08em", marginBottom:3 }}>
+                        {item.role === "user" ? (item.user_name ?? "YOU") : `@${item.persona}`} · {new Date(item.created_at).toLocaleString([], { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" })}
+                      </div>
+                      <div style={{ fontFamily: item.persona === "writer" ? T.italic : T.sans, fontStyle: item.persona === "writer" ? "italic" : "normal", fontSize:13, color:T.text, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {formatSnippet(item.snippet, query)}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {/* Message results — other rooms */}
+          {results.otherRooms.length > 0 && (
+            <>
+              <div style={{ padding:"8px 20px 4px", fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.12em", background:T.bg2, borderTop:`1px solid ${T.bdr}` }}>
+                OTHER ROOMS · {results.otherRooms.length}
+              </div>
+              {results.otherRooms.map((item, i) => {
+                const color = AGENT_COLORS_LOCAL[item.persona ?? ""] ?? T.sub;
+                const icon = item.role === "user" ? "◍" : (AGENT_ICONS_LOCAL[item.persona ?? ""] ?? "◉");
+                const idx = results.thisRoom.length + i;
+                const sel = idx === selected;
+                return (
+                  <button key={item.id} onClick={() => { router.push(`/rooms/${item.room_id}`); onClose(); }} style={{ display:"grid", gridTemplateColumns:"24px 1fr auto", gap:12, alignItems:"flex-start", padding:"11px 20px", width:"100%", background:sel ? T.surf2 : "transparent", border:"none", borderLeft:`2px solid ${sel ? color : "transparent"}`, cursor:"pointer", textAlign:"left" }}>
+                    <span style={{ color: item.role === "user" ? T.sub : color, fontSize:13, marginTop:2 }}>{icon}</span>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.08em", marginBottom:3 }}>
+                        {item.role === "user" ? (item.user_name ?? "YOU") : `@${item.persona}`} · {new Date(item.created_at).toLocaleString([], { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" })}
+                      </div>
+                      <div style={{ fontFamily: item.persona === "writer" ? T.italic : T.sans, fontStyle: item.persona === "writer" ? "italic" : "normal", fontSize:13, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {formatSnippet(item.snippet, query)}
+                      </div>
+                    </div>
+                    <span style={{ fontFamily:T.mono, fontSize:9, color:T.meta, whiteSpace:"nowrap", marginTop:2 }}>{item.roomName}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {/* Query with no results */}
+          {query.length >= 2 && !searching && !hasResults && (
+            <div style={{ padding:"24px 20px", fontFamily:T.mono, fontSize:10, color:T.meta, textAlign:"center", letterSpacing:"0.06em" }}>
+              NO RESULTS FOR "{query.toUpperCase()}"
             </div>
-          </button>
-        ))}
+          )}
+
+          {/* Actions (shown when no search query) */}
+          {showActions && (
+            <>
+              {query.length > 0 && (
+                <div style={{ padding:"8px 20px 4px", fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.12em", background:T.bg2, borderTop:`1px solid ${T.bdr}` }}>QUICK ACTIONS</div>
+              )}
+              {ACTIONS.map((item, i) => (
+                <button key={i} onClick={item.fn} style={{ width:"100%", background: i === selected ? T.surf2 : "none", border:"none", borderLeft:`2px solid ${i === selected ? "#4da8ff" : "transparent"}`, padding:"11px 20px", cursor:"pointer", textAlign:"left", display:"flex", alignItems:"center", gap:14 }}
+                  onMouseEnter={() => setSelected(i)} onMouseLeave={() => {}}>
+                  <span style={{ fontSize:14, color:T.sub, width:22, textAlign:"center", flexShrink:0 }}>{item.icon}</span>
+                  <div>
+                    <div style={{ fontFamily:T.sans, fontSize:13, color:T.text, marginBottom:2 }}>{item.label}</div>
+                    <div style={{ fontFamily:T.mono, fontSize:8.5, color:T.meta }}>{item.sub}</div>
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:"8px 16px", borderTop:`1px solid ${T.bdr}`, background:T.bg2, display:"flex", alignItems:"center", gap:14, fontFamily:T.mono, fontSize:9, color:T.meta, letterSpacing:"0.06em", flexShrink:0 }}>
+          <span>↑↓ NAVIGATE</span>
+          <span>↵ {hasResults ? "GO TO ROOM" : "RUN"}</span>
+          <span style={{ flex:1 }} />
+          {hasResults && <span>SEARCHING ALL YOUR ROOMS</span>}
+        </div>
       </div>
     </div>
   );
@@ -2523,6 +2664,7 @@ ${directorSynthesis}`,
           onDemo={() => { loadDemo(); setModal(null); }}
           onModal={setModal}
           onExport={handleExport}
+          roomId={room.id}
         />
       )}
 
