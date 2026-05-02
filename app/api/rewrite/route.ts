@@ -10,6 +10,15 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:4200',
 ]);
 
+type HFGenerated = { generated_text?: string };
+
+type HFChatCompletion = {
+  choices?: Array<{
+    message?: { content?: string };
+    text?: string;
+  }>;
+};
+
 function getCorsHeaders(req: NextRequest) {
   const origin = req.headers.get('origin') || '';
   const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://smm.fredericlabadie.com';
@@ -31,6 +40,24 @@ function json(req: NextRequest, body: unknown, init?: ResponseInit) {
       ...(init?.headers || {}),
     },
   });
+}
+
+function extractGeneratedText(data: unknown): string {
+  if (Array.isArray(data)) {
+    const first = data[0] as HFGenerated | undefined;
+    return first?.generated_text || '';
+  }
+
+  if (data && typeof data === 'object') {
+    const obj = data as HFGenerated & HFChatCompletion;
+    if (typeof obj.generated_text === 'string') return obj.generated_text;
+
+    const firstChoice = obj.choices?.[0];
+    if (typeof firstChoice?.message?.content === 'string') return firstChoice.message.content;
+    if (typeof firstChoice?.text === 'string') return firstChoice.text;
+  }
+
+  return '';
 }
 
 export async function OPTIONS(req: NextRequest) {
@@ -79,5 +106,22 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await res.json();
-  return json(req, data);
+  const generated_text = extractGeneratedText(data);
+
+  if (!generated_text) {
+    return json(
+      req,
+      {
+        error: 'No generated text returned from HuggingFace',
+        provider_shape: Array.isArray(data) ? 'array' : typeof data,
+      },
+      { status: 502 },
+    );
+  }
+
+  return json(req, {
+    generated_text,
+    provider: 'huggingface',
+    model: HF_MODEL,
+  });
 }
