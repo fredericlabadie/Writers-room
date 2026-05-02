@@ -42,6 +42,31 @@ function json(req: NextRequest, body: unknown, init?: ResponseInit) {
   });
 }
 
+async function readPrompt(req: NextRequest): Promise<string> {
+  const contentType = req.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    const body = await req.json() as { prompt?: string };
+    return typeof body.prompt === 'string' ? body.prompt : '';
+  }
+
+  if (contentType.includes('text/plain')) {
+    return (await req.text()).trim();
+  }
+
+  // Be permissive for simple cross-origin requests where the browser omits
+  // or changes the content type.
+  const raw = await req.text();
+  if (!raw) return '';
+
+  try {
+    const parsed = JSON.parse(raw) as { prompt?: string };
+    return typeof parsed.prompt === 'string' ? parsed.prompt : raw;
+  } catch {
+    return raw.trim();
+  }
+}
+
 function extractGeneratedText(data: unknown): string {
   if (Array.isArray(data)) {
     const first = data[0] as HFGenerated | undefined;
@@ -73,14 +98,14 @@ export async function POST(req: NextRequest) {
     return json(req, { error: 'HF_TOKEN not configured' }, { status: 500 });
   }
 
-  let body: { prompt?: string };
+  let prompt = '';
   try {
-    body = await req.json();
+    prompt = await readPrompt(req);
   } catch {
-    return json(req, { error: 'Invalid JSON' }, { status: 400 });
+    return json(req, { error: 'Invalid request body' }, { status: 400 });
   }
 
-  if (!body.prompt) {
+  if (!prompt) {
     return json(req, { error: 'prompt required' }, { status: 400 });
   }
 
@@ -91,7 +116,7 @@ export async function POST(req: NextRequest) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      inputs: body.prompt,
+      inputs: prompt,
       parameters: {
         max_new_tokens: 800,
         temperature: 0.3,
