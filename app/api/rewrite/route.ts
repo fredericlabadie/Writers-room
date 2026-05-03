@@ -3,13 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 const HF_MODEL = 'HuggingFaceH4/zephyr-7b-beta';
 const HF_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
 
-const ALLOWED_ORIGINS = new Set([
-  'https://smm.fredericlabadie.com',
-  'https://writersroom.fredericlabadie.com',
-  'http://localhost:3000',
-  'http://localhost:4200',
-]);
-
 type HFGenerated = { generated_text?: string };
 
 type HFChatCompletion = {
@@ -19,24 +12,23 @@ type HFChatCompletion = {
   }>;
 };
 
-function getCorsHeaders(req: NextRequest) {
-  const origin = req.headers.get('origin') || '';
-  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://smm.fredericlabadie.com';
-
+function getCorsHeaders() {
   return {
-    'Access-Control-Allow-Origin': allowedOrigin,
+    // This endpoint accepts public prompts only and does not use cookies or
+    // browser credentials. Wildcard CORS avoids custom-domain/origin mismatch
+    // problems between the static SMM site and the Writers Room proxy.
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': '*',
     'Access-Control-Max-Age': '86400',
-    Vary: 'Origin',
   };
 }
 
-function json(req: NextRequest, body: unknown, init?: ResponseInit) {
+function json(body: unknown, init?: ResponseInit) {
   return NextResponse.json(body, {
     ...init,
     headers: {
-      ...getCorsHeaders(req),
+      ...getCorsHeaders(),
       ...(init?.headers || {}),
     },
   });
@@ -85,28 +77,28 @@ function extractGeneratedText(data: unknown): string {
   return '';
 }
 
-export async function OPTIONS(req: NextRequest) {
+export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
-    headers: getCorsHeaders(req),
+    headers: getCorsHeaders(),
   });
 }
 
 export async function POST(req: NextRequest) {
   const token = process.env.HF_TOKEN;
   if (!token) {
-    return json(req, { error: 'HF_TOKEN not configured' }, { status: 500 });
+    return json({ error: 'HF_TOKEN not configured' }, { status: 500 });
   }
 
   let prompt = '';
   try {
     prompt = await readPrompt(req);
   } catch {
-    return json(req, { error: 'Invalid request body' }, { status: 400 });
+    return json({ error: 'Invalid request body' }, { status: 400 });
   }
 
   if (!prompt) {
-    return json(req, { error: 'prompt required' }, { status: 400 });
+    return json({ error: 'prompt required' }, { status: 400 });
   }
 
   const res = await fetch(HF_URL, {
@@ -127,7 +119,7 @@ export async function POST(req: NextRequest) {
 
   if (!res.ok) {
     const err = await res.text();
-    return json(req, { error: err }, { status: res.status });
+    return json({ error: err }, { status: res.status });
   }
 
   const data = await res.json();
@@ -135,7 +127,6 @@ export async function POST(req: NextRequest) {
 
   if (!generated_text) {
     return json(
-      req,
       {
         error: 'No generated text returned from HuggingFace',
         provider_shape: Array.isArray(data) ? 'array' : typeof data,
@@ -144,7 +135,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return json(req, {
+  return json({
     generated_text,
     provider: 'huggingface',
     model: HF_MODEL,
