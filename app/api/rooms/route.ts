@@ -1,7 +1,11 @@
 import { assertWriteAllowed, getActorContext, unauthorizedResponse } from "@/lib/authz";
 import { createSupabaseServiceClient } from "@/lib/supabase";
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
-import { nanoid } from "nanoid";
+
+function generateInviteCode(): string {
+  return randomBytes(6).toString("base64url").slice(0, 8);
+}
 
 // GET /api/rooms — list rooms the user belongs to
 export async function GET(req: Request) {
@@ -67,7 +71,7 @@ export async function POST(req: Request) {
   if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
 
   const supabase = createSupabaseServiceClient();
-  const inviteCode = nanoid(8);
+  const inviteCode = generateInviteCode();
 
   const VALID_ROOM_TYPES = ["writers", "jobhunt", "career", "publishing"];
   const safeRoomType = VALID_ROOM_TYPES.includes(room_type) ? room_type : "writers";

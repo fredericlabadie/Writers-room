@@ -45,6 +45,12 @@ export async function PATCH(req: Request, { params }: Params) {
   if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
+  const ownerOnlyFields = ["name", "is_private"];
+  const requiresOwner = ownerOnlyFields.some(f => f in body);
+  if (requiresOwner && membership.role !== "owner") {
+    return NextResponse.json({ error: "Only room owners can change this" }, { status: 403 });
+  }
+
   const allowed = ["notebooklm_url", "active_tone", "name", "description", "is_private", "notes"];
   const update: Record<string, unknown> = {};
   for (const key of allowed) {

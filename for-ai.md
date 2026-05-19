@@ -1,6 +1,6 @@
 # for-ai.md — Writers Room
 *Context document for AI assistants continuing development on this project.*
-*Last updated: April 2026 — 93 commits, clean build.*
+*Last updated: May 2026 — model: claude-sonnet-4-6 (defined in `lib/anthropic.ts`)*
 
 ---
 
@@ -9,7 +9,7 @@
 Writers Room is a collaborative AI workspace — a multi-agent chat room where users call specialized agents by @mention. Built for four use cases: creative writing, job hunting, career development, and publishing. Live at [writersroom.fredericlabadie.com](https://writersroom.fredericlabadie.com).
 
 **Repo:** `fredericlabadie/Writers-room`
-**Stack:** Next.js 14 (App Router) · TypeScript · Supabase · Anthropic API (`claude-sonnet-4-5`) · NextAuth v5 · Vercel
+**Stack:** Next.js 14 (App Router) · TypeScript · Supabase · Anthropic API (`claude-sonnet-4-6`) · NextAuth v5 · Vercel
 
 ---
 

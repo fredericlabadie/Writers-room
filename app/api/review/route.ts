@@ -5,7 +5,7 @@
 import { assertWriteAllowed, getActorContext, unauthorizedResponse, verifyRoomAccess } from "@/lib/authz";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 import { NextResponse } from "next/server";
-import { nanoid } from "nanoid";
+import { randomBytes } from "crypto";
 
 export async function POST(req: Request) {
   const actor = await getActorContext(req);
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   const canAccess = await verifyRoomAccess(supabase, roomId, actor);
   if (!canAccess) return NextResponse.json({ error: "Not a member of this room" }, { status: 403 });
 
-  const token = nanoid(24);
+  const token = randomBytes(18).toString("base64url").slice(0, 24);
   const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString();
 
   const { error } = await supabase.from("review_links").insert({
