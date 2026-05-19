@@ -284,7 +284,7 @@ export async function POST(req: Request) {
     const maxTokens = Math.max(100, Math.min(rawMaxTokens, 4096));
 
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-5",
+      model: "claude-sonnet-4-6",
       max_tokens: maxTokens,
       temperature: persona.generation.temperature,
       system: systemPrompt,
