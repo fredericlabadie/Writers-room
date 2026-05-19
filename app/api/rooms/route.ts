@@ -70,7 +70,14 @@ export async function POST(req: Request) {
   const { name, description, is_private, room_type, folder_id } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
 
-  const supabase = createSupabaseServiceClient();
+  let supabase;
+  try {
+    supabase = createSupabaseServiceClient();
+  } catch (e: any) {
+    console.error("[POST /api/rooms] Supabase client init failed:", e.message);
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+
   const inviteCode = generateInviteCode();
 
   const VALID_ROOM_TYPES = ["writers", "jobhunt", "career", "publishing"];
@@ -90,7 +97,10 @@ export async function POST(req: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[POST /api/rooms] Supabase insert failed:", error.message, error.code, error.details);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   // Add creator as owner member
   if (actor.userId) {

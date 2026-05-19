@@ -235,18 +235,27 @@ function PinCard({ pin, onDelete, canDelete }: { pin: FolderPin; onDelete: () =>
 function CreateRoomPanel({ folderId, onClose, onCreate }: { folderId?: string; onClose: () => void; onCreate: (room: Room) => void }) {
   const [form, setForm] = useState({ name: "", description: "", is_private: false, room_type: "writers" as RoomType });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
-    const res = await fetch("/api/rooms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, folder_id: folderId || null }),
-    });
-    if (res.ok) {
-      const room = await res.json();
-      onCreate(room);
+    setError(null);
+    try {
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, folder_id: folderId || null }),
+      });
+      if (res.ok) {
+        const room = await res.json();
+        onCreate(room);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setError(`${res.status}: ${body.error ?? "Unknown error"}`);
+      }
+    } catch (e: any) {
+      setError(e.message ?? "Network error");
     }
     setSaving(false);
   };
@@ -276,6 +285,7 @@ function CreateRoomPanel({ folderId, onClose, onCreate }: { folderId?: string; o
         <input type="checkbox" checked={form.is_private} onChange={e => setForm(p => ({ ...p, is_private: e.target.checked }))} />
         Private (invite-only)
       </label>
+      {error && <p style={{ fontFamily: T.mono, fontSize: 11, color: "#ff5a5a" }}>{error}</p>}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={handleCreate} disabled={saving || !form.name.trim()} style={{ padding: "8px 18px", borderRadius: 6, background: "#0d2240", border: "1px solid #4da8ff44", color: "#4da8ff", fontSize: 13, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "Creating…" : "Create"}</button>
         <button onClick={onClose} style={{ padding: "8px 18px", borderRadius: 6, background: "none", border: `1px solid ${T.bdr2}`, color: T.sub, fontSize: 13, cursor: "pointer" }}>Cancel</button>
