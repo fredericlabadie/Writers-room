@@ -3,11 +3,9 @@ import { retrieveRelevantChunks } from "@/lib/artifacts/retrieve";
 import { PERSONAS, buildContextString } from "@/lib/personas";
 import { createSupabaseServiceClient } from "@/lib/supabase";
 import { checkAndRecordCall, rateLimitResponse } from "@/lib/rateLimit";
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import type { PersonaId, RetrievalDebugInfo, RetrievalSettings } from "@/types";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { anthropic, DEFAULT_MODEL } from "@/lib/anthropic";
 
 const CONTEXT_TAIL_COUNT = 16;
 const EARLY_MESSAGE_PREVIEW_CHARS = 140;
@@ -284,7 +282,7 @@ export async function POST(req: Request) {
     const maxTokens = Math.max(100, Math.min(rawMaxTokens, 4096));
 
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+      model: DEFAULT_MODEL,
       max_tokens: maxTokens,
       temperature: persona.generation.temperature,
       system: systemPrompt,

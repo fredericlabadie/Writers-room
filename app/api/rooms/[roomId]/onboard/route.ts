@@ -4,14 +4,17 @@
 // Saves messages to DB and returns them.
 
 import { assertWriteAllowed, getActorContext, unauthorizedResponse, verifyRoomAccess } from "@/lib/authz";
+import { anthropic, DEFAULT_MODEL } from "@/lib/anthropic";
 import { getAgentsForRoom } from "@/lib/personas";
 import { createSupabaseServiceClient } from "@/lib/supabase";
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 type Params = { params: { roomId: string } };
+
+// 300 base + 150 per non-director agent — enough for every room size
+function calcMaxTokens(nonDirectorCount: number): number {
+  return Math.min(300 + nonDirectorCount * 150, 2048);
+}
 
 export async function POST(req: Request, { params }: Params) {
   const actor = await getActorContext(req);
@@ -30,9 +33,9 @@ export async function POST(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Room already has messages" }, { status: 409 });
   }
 
-  const { about, reader, tone, roomType, roomName } = await req.json();
+  const { about, reader, tone, roomType } = await req.json();
 
-  // Fetch room for type
+  // Fetch room from DB — use server-side name, never the client-supplied one
   const { data: room } = await supabase
     .from("rooms").select("id, room_type, name").eq("id", params.roomId).single();
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
@@ -42,14 +45,16 @@ export async function POST(req: Request, { params }: Params) {
   await supabase.from("rooms").update({ description }).eq("id", params.roomId);
 
   const agents = getAgentsForRoom(roomType ?? room.room_type ?? "writers");
-  const agentList = agents.filter(a => a.id !== "director")
+  const validPersonaIds = new Set(agents.map(a => a.id));
+  const nonDirectorAgents = agents.filter(a => a.id !== "director");
+  const agentList = nonDirectorAgents
     .map(a => `@${a.id} (${a.role}): ${a.tagline}`).join("\n");
 
   const SYSTEM = `You are the Director in a Writers Room — a synthesizing meta-agent who orchestrates the cast.
 You are generating the opening sequence for a new room. Be specific, warm, and voice-distinct.
 Respond ONLY with a valid JSON object. No markdown fences, no commentary.`;
 
-  const prompt = `The user has set the stage for their room "${roomName ?? room.name}":
+  const prompt = `The user has set the stage for their room "${room.name}":
 - About: ${about || "(not specified)"}
 - Reader / references: ${reader || "(not specified)"}
 - Tone: ${tone || "(not specified)"}
@@ -61,7 +66,7 @@ Generate this JSON:
 {
   "director_opening": "A 2-sentence Director message that briefly confirms the stage and introduces the cast. Specific to the project.",
   "agent_intros": [
-    ${agents.filter(a => a.id !== "director").map(a => `{"persona": "${a.id}", "text": "One sentence self-intro from @${a.id}. Voice-distinct. Specific to the project."}`).join(",\n    ")}
+    ${nonDirectorAgents.map(a => `{"persona": "${a.id}", "text": "One sentence self-intro from @${a.id}. Voice-distinct. Specific to the project."}`).join(",\n    ")}
   ],
   "director_question": "One sharp, specific first question from the Director that opens the work. Not generic."
 }`;
@@ -69,8 +74,8 @@ Generate this JSON:
   let parsed: any;
   try {
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 600,
+      model: DEFAULT_MODEL,
+      max_tokens: calcMaxTokens(nonDirectorAgents.length),
       temperature: 0.8,
       system: SYSTEM,
       messages: [{ role: "user", content: prompt }],
@@ -81,6 +86,20 @@ Generate this JSON:
     return NextResponse.json({ error: "Generation failed: " + e.message }, { status: 500 });
   }
 
+  // Validate structure before touching the DB
+  if (
+    typeof parsed.director_opening !== "string" ||
+    typeof parsed.director_question !== "string" ||
+    !Array.isArray(parsed.agent_intros)
+  ) {
+    return NextResponse.json({ error: "Unexpected generation format" }, { status: 500 });
+  }
+
+  // Filter out any intros with an unrecognized persona (LLM hallucination guard)
+  const validIntros = (parsed.agent_intros as any[]).filter(
+    intro => typeof intro.persona === "string" && validPersonaIds.has(intro.persona) && intro.persona !== "director"
+  );
+
   // Save messages to DB
   const now = new Date();
   const messagesToInsert = [
@@ -89,9 +108,9 @@ Generate this JSON:
       role: "agent",
       persona: "director",
       content: parsed.director_opening,
-      created_at: new Date(now.getTime() + 0).toISOString(),
+      created_at: new Date(now.getTime()).toISOString(),
     },
-    ...parsed.agent_intros.map((intro: any, i: number) => ({
+    ...validIntros.map((intro: any, i: number) => ({
       room_id: params.roomId,
       role: "agent",
       persona: intro.persona,
@@ -103,7 +122,7 @@ Generate this JSON:
       role: "agent",
       persona: "director",
       content: parsed.director_question,
-      created_at: new Date(now.getTime() + (parsed.agent_intros.length + 1) * 500).toISOString(),
+      created_at: new Date(now.getTime() + (validIntros.length + 1) * 500).toISOString(),
     },
   ];
 
