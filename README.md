@@ -23,6 +23,26 @@ Four room types, each with five purpose-built agents:
 
 ---
 
+## Relationship to the SMM course
+
+Writers Room no longer powers the Dervin SMM Course rewriter.
+
+The old temporary route:
+
+```text
+app/api/rewrite/route.ts
+```
+
+was removed after the SMM course moved to its own dedicated API:
+
+```text
+https://smm-api.fredericlabadie.com
+```
+
+If the Writers Room Vercel project still has an old `HF_TOKEN` used only for that temporary SMM proxy, it can be removed from the Writers Room environment. Keep only env vars used by Writers Room itself.
+
+---
+
 ## Multi-agent syntax
 
 ```
