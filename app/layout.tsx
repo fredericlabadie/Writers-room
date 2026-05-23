@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AmplitudeInit from "@/components/AmplitudeInit";
 import Providers from "@/components/Providers";
 import "./globals.css";
 
@@ -7,7 +8,11 @@ export const metadata: Metadata = {
   description: "A collaborative AI studio for story writing and worldbuilding",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
       <head>
@@ -17,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        <AmplitudeInit />
         <Providers>{children}</Providers>
       </body>
     </html>
