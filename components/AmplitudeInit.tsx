@@ -23,7 +23,7 @@ export default function AmplitudeInit() {
       amplitude.initAll("bb520ce286dcd9762c8e4360e9a3d51e", {
         serverZone: "EU",
         analytics: { autocapture: true },
-        sessionReplay: { sampleRate: 1 },
+        sessionReplay: { sampleRate: 0.1 },
       });
     }
 
