@@ -7,6 +7,14 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Writers Room",
   description: "A collaborative AI studio for story writing and worldbuilding",
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: {
+      index: false,
+      follow: false,
+    },
+  },
 };
 
 export default function RootLayout({
