@@ -1,5 +1,14 @@
 import * as amplitude from "@amplitude/unified";
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+const DOMAIN =
+  typeof window !== "undefined" ? window.location.hostname : "writers-room";
+
+function track(event: string, props: Record<string, string | undefined>) {
+  amplitude.track(event, { domain: DOMAIN, ...props });
+}
+
 // ── User properties ────────────────────────────────────────────────────────────
 
 export function setAuthUserProperties(props: {
@@ -35,7 +44,7 @@ export function trackSignInStarted(props: {
   entry_point: string;
   redirect_destination?: string;
 }) {
-  amplitude.track("Sign In Started", {
+  track("Sign In Started", {
     auth_provider: props.auth_provider,
     requested_calendar_access: "false",
     entry_point: props.entry_point,
@@ -51,7 +60,7 @@ export function trackSignInCompleted(props: {
   is_first_login: boolean;
   sign_in_method: string;
 }) {
-  amplitude.track("Sign In Completed", {
+  track("Sign In Completed", {
     auth_provider: props.auth_provider,
     calendar_access_granted: String(props.calendar_access_granted),
     is_first_login: String(props.is_first_login),
@@ -62,7 +71,7 @@ export function trackSignInCompleted(props: {
 // ── Sign Out Completed ────────────────────────────────────────────────────────
 
 export function trackSignOutCompleted(sign_out_reason = "user_action") {
-  amplitude.track("Sign Out Completed", { sign_out_reason });
+  track("Sign Out Completed", { sign_out_reason });
 }
 
 // ── Calendar Connected ────────────────────────────────────────────────────────
@@ -73,7 +82,7 @@ export function trackCalendarConnected(props: {
   connection_surface: string;
 }) {
   setCalendarConnected();
-  amplitude.track("Calendar Connected", {
+  track("Calendar Connected", {
     auth_provider: props.auth_provider,
     calendar_scope_granted: props.calendar_scope_granted,
     connection_surface: props.connection_surface,
@@ -88,7 +97,7 @@ export function trackRoomCreated(props: {
   creation_source: string;
   collaborator_count?: number;
 }) {
-  amplitude.track("Room Created", {
+  track("Room Created", {
     room_id: props.room_id,
     room_type: props.room_type,
     creation_source: props.creation_source,
@@ -103,7 +112,7 @@ export function trackRoomOpened(props: {
   open_source: string;
   is_first_open: boolean;
 }) {
-  amplitude.track("Room Opened", {
+  track("Room Opened", {
     room_id: props.room_id,
     open_source: props.open_source,
     is_first_open: String(props.is_first_open),
@@ -118,7 +127,7 @@ export function trackSessionStarted(props: {
   session_type: string;
   start_source: string;
 }) {
-  amplitude.track("Session Started", {
+  track("Session Started", {
     room_id: props.room_id,
     session_id: props.session_id,
     session_type: props.session_type,
@@ -137,7 +146,7 @@ export function trackAgentRequestSubmitted(props: {
   has_document_context: boolean;
   iteration_number: number;
 }) {
-  amplitude.track("Agent Request Submitted", {
+  track("Agent Request Submitted", {
     room_id: props.room_id,
     session_id: props.session_id,
     agent_type: props.agent_type,
@@ -159,7 +168,7 @@ export function trackAgentResponseGenerated(props: {
   latency_ms: number;
   model_name?: string;
 }) {
-  amplitude.track("Agent Response Generated", {
+  track("Agent Response Generated", {
     room_id: props.room_id,
     session_id: props.session_id,
     agent_type: props.agent_type,
@@ -179,7 +188,7 @@ export function trackOutputApplied(props: {
   apply_type: string;
   applied_length_chars: number;
 }) {
-  amplitude.track("Output Applied", {
+  track("Output Applied", {
     room_id: props.room_id,
     session_id: props.session_id,
     agent_type: props.agent_type,
@@ -197,7 +206,7 @@ export function trackContentSaved(props: {
   save_method: string;
   word_count: number;
 }) {
-  amplitude.track("Content Saved", {
+  track("Content Saved", {
     room_id: props.room_id,
     content_id: props.content_id,
     content_type: props.content_type,
@@ -216,7 +225,7 @@ export function trackContentExported(props: {
   export_destination: string;
   file_size_kb?: number;
 }) {
-  amplitude.track("Content Exported", {
+  track("Content Exported", {
     room_id: props.room_id,
     content_id: props.content_id,
     content_type: props.content_type,
@@ -235,7 +244,7 @@ export function trackFeedbackSubmitted(props: {
   rating: string;
   feedback_category: string;
 }) {
-  amplitude.track("Feedback Submitted", {
+  track("Feedback Submitted", {
     feedback_context: props.feedback_context,
     agent_type: props.agent_type,
     rating: props.rating,
@@ -252,7 +261,7 @@ export function trackCalendarEventCreated(props: {
   duration_minutes: number;
   calendar_provider: string;
 }) {
-  amplitude.track("Calendar Event Created", {
+  track("Calendar Event Created", {
     room_id: props.room_id,
     calendar_event_type: props.calendar_event_type,
     scheduled_start_at: props.scheduled_start_at,
@@ -269,7 +278,7 @@ export function trackErrorEncountered(props: {
   error_context: string;
   is_recoverable?: boolean;
 }) {
-  amplitude.track("Error Encountered", {
+  track("Error Encountered", {
     error_category: props.error_category,
     error_message: props.error_message.slice(0, 200),
     error_context: props.error_context,
