@@ -3,9 +3,19 @@
 import { useEffect } from "react";
 import * as amplitude from "@amplitude/unified";
 
+type CookiebotWindow = Window &
+  typeof globalThis & {
+    Cookiebot?: {
+      consent?: {
+        statistics?: boolean;
+      };
+    };
+  };
+
 export default function AmplitudeInit() {
   useEffect(() => {
     let initialized = false;
+    const cookiebotWindow = window as CookiebotWindow;
 
     function initAmplitude() {
       if (initialized) return;
@@ -18,28 +28,24 @@ export default function AmplitudeInit() {
     }
 
     function onAccept() {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (!(window as any).Cookiebot?.consent?.statistics) return;
+      if (!cookiebotWindow.Cookiebot?.consent?.statistics) return;
       if (!initialized) {
         initAmplitude();
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (amplitude as any).setOptOut(false);
+        amplitude.setOptOut(false);
       }
     }
 
     function onDecline() {
       if (!initialized) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (amplitude as any).setOptOut(true);
+      amplitude.setOptOut(true);
     }
 
     window.addEventListener("CookiebotOnAccept", onAccept);
     window.addEventListener("CookiebotOnDecline", onDecline);
 
     // Return visit: consent already stored from a previous session
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((window as any).Cookiebot?.consent?.statistics) {
+    if (cookiebotWindow.Cookiebot?.consent?.statistics) {
       initAmplitude();
     }
 

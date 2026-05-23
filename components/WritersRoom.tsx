@@ -4722,7 +4722,7 @@ export default function WritersRoom({
           trackSessionStarted({
             room_id: room.id,
             session_id: sessionIdRef.current,
-            session_type: room.type ?? "general",
+            session_type: room.room_type ?? "writers",
             start_source: "returning",
           });
 
@@ -5643,14 +5643,14 @@ ${directorSynthesis}`,
       previousPersonaId: AgentId | null,
     ): Promise<string | null> => {
       const agentRequestStart = Date.now();
+      const agentContext = buildAgentContext(personaId);
       trackAgentRequestSubmitted({
         room_id: room.id,
         session_id: sessionIdRef.current,
         agent_type: personaId,
         request_type: chainContext ? "chain" : "direct",
         input_length_chars: text.length,
-        has_document_context:
-          Object.keys(buildAgentContext(personaId)).length > 0,
+        has_document_context: Boolean(agentContext?.trim()),
         iteration_number: messages.length,
       });
       try {
@@ -5665,7 +5665,7 @@ ${directorSynthesis}`,
             allMentions,
             chainContext, // server uses this when present for the handoff prompt
             previousPersona: previousPersonaId,
-            agentContext: buildAgentContext(personaId),
+            agentContext,
             lengthMultiplier:
               responseLength === "parsimonious"
                 ? 0.4
