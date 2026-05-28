@@ -67,6 +67,10 @@ export async function POST(req: Request) {
   const writeError = assertWriteAllowed(actor);
   if (writeError) return writeError;
 
+  if (actor.mode !== "user" || !actor.userId) {
+    return NextResponse.json({ error: "Room creation requires a signed-in user" }, { status: 401 });
+  }
+
   const { name, description, is_private, room_type, folder_id } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
 
@@ -76,6 +80,23 @@ export async function POST(req: Request) {
   } catch (e: any) {
     console.error("[POST /api/rooms] Supabase client init failed:", e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .upsert(
+      { id: actor.userId },
+      { onConflict: "id" }
+    );
+
+  if (profileError) {
+    console.error(
+      "[POST /api/rooms] Profile upsert failed:",
+      profileError.message,
+      profileError.code,
+      profileError.details
+    );
+    return NextResponse.json({ error: profileError.message }, { status: 500 });
   }
 
   const inviteCode = generateInviteCode();
