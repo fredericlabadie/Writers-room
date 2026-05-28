@@ -58,10 +58,31 @@ export async function POST(req: Request) {
   const writeError = assertWriteAllowed(actor);
   if (writeError) return writeError;
 
+  if (actor.mode !== "user" || !actor.userId) {
+    return NextResponse.json({ error: "Folder creation requires a signed-in user" }, { status: 401 });
+  }
+
   const { name, description, genre, reader, tone, about } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
 
   const supabase = createSupabaseServiceClient();
+
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .upsert(
+      { id: actor.userId },
+      { onConflict: "id" }
+    );
+
+  if (profileError) {
+    console.error(
+      "[POST /api/folders] Profile upsert failed:",
+      profileError.message,
+      profileError.code,
+      profileError.details
+    );
+    return NextResponse.json({ error: profileError.message }, { status: 500 });
+  }
 
   const { data: folder, error } = await supabase
     .from("folders")
