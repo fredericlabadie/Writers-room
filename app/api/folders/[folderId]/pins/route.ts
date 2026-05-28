@@ -27,10 +27,31 @@ export async function POST(req: Request, { params }: Params) {
   const writeError = assertWriteAllowed(actor);
   if (writeError) return writeError;
 
+  if (actor.mode !== "user" || !actor.userId) {
+    return NextResponse.json({ error: "Creating folder pins requires a signed-in user" }, { status: 401 });
+  }
+
   const { text } = await req.json();
   if (!text?.trim()) return NextResponse.json({ error: "Text required" }, { status: 400 });
 
   const supabase = createSupabaseServiceClient();
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .upsert(
+      { id: actor.userId },
+      { onConflict: "id" }
+    );
+
+  if (profileError) {
+    console.error(
+      "[POST /api/folders/[folderId]/pins] Profile upsert failed:",
+      profileError.message,
+      profileError.code,
+      profileError.details
+    );
+    return NextResponse.json({ error: profileError.message }, { status: 500 });
+  }
+
   const { data, error } = await supabase
     .from("folder_pins")
     .insert({ folder_id: params.folderId, text: text.trim(), created_by: actor.userId })
