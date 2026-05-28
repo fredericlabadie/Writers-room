@@ -83,11 +83,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
     async signIn({ user }) {
       if (!user.email) return false;
+
       const supabase = createSupabaseServiceClient();
-      await supabase.from("profiles").upsert(
+      const { error } = await supabase.from("profiles").upsert(
         { id: user.id, name: user.name, avatar_url: user.image },
         { onConflict: "id" }
       );
+
+      if (error) {
+        console.error("[auth.signIn] Profile upsert failed:", error.message, error.code, error.details);
+        return false;
+      }
+
       return true;
     },
   },
