@@ -1,21 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import * as amplitude from "@amplitude/unified";
 
 export default function AmplitudeInit() {
   useEffect(() => {
     let initialized = false;
-
-    function initAmplitude() {
-      if (initialized) return;
-      initialized = true;
-      amplitude.initAll("bb520ce286dcd9762c8e4360e9a3d51e", {
-        serverZone: "EU",
-        analytics: { autocapture: true },
-        sessionReplay: { sampleRate: 0.1 },
-      });
-    }
+    let amp: typeof import("@amplitude/unified") | null = null;
 
     function clearAmplitudeStorage() {
       try {
@@ -31,19 +21,25 @@ export default function AmplitudeInit() {
       }
     }
 
-    function syncConsent() {
+    async function syncConsent() {
       if (window.FLConsent?.hasAnalytics()) {
-        initAmplitude();
-        amplitude.setOptOut(false);
+        if (!initialized) {
+          initialized = true;
+          amp = await import("@amplitude/unified");
+          amp.initAll("bb520ce286dcd9762c8e4360e9a3d51e", {
+            serverZone: "EU",
+            analytics: { autocapture: true },
+            sessionReplay: { sampleRate: 0.1 },
+          });
+        }
+        amp?.setOptOut(false);
       } else {
-        if (initialized) amplitude.setOptOut(true);
+        amp?.setOptOut(true);
         clearAmplitudeStorage();
       }
     }
 
     window.addEventListener("FLConsentChanged", syncConsent);
-
-    // Return visit: fl-consent.js already ran, check current state.
     syncConsent();
 
     return () => {
