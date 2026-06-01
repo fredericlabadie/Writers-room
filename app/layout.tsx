@@ -25,11 +25,18 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <Script id="fl-consent-config" strategy="beforeInteractive">{`
+          window.FLConsentConfig = {
+            appId: "writersroom",
+            appName: "Writers Room",
+            cookieName: "fl_consent_writersroom",
+            bannerText: "Writers Room uses necessary storage to remember this choice. With your permission, it also uses Amplitude analytics and session replay to understand how the studio is used. Analytics is optional — you can decline and still use the tool.",
+            theme: "dark"
+          };
+        `}</Script>
         <Script
-          id="Cookiebot"
-          src="https://consent.cookiebot.com/uc.js"
-          data-cbid="d8d8cb40-e8e6-4ca0-852d-bfb6cd1aac42"
-          data-blockingmode="auto"
+          id="fl-consent"
+          src="https://fredericlabadie.com/js/fl-consent.js"
           strategy="beforeInteractive"
         />
         <link

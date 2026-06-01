@@ -3,19 +3,9 @@
 import { useEffect } from "react";
 import * as amplitude from "@amplitude/unified";
 
-type CookiebotWindow = Window &
-  typeof globalThis & {
-    Cookiebot?: {
-      consent?: {
-        statistics?: boolean;
-      };
-    };
-  };
-
 export default function AmplitudeInit() {
   useEffect(() => {
     let initialized = false;
-    const cookiebotWindow = window as CookiebotWindow;
 
     function initAmplitude() {
       if (initialized) return;
@@ -27,31 +17,37 @@ export default function AmplitudeInit() {
       });
     }
 
-    function onAccept() {
-      if (!cookiebotWindow.Cookiebot?.consent?.statistics) return;
-      if (!initialized) {
-        initAmplitude();
-      } else {
-        amplitude.setOptOut(false);
+    function clearAmplitudeStorage() {
+      try {
+        const pat = /^(AMP_|amplitude_)/i;
+        Object.keys(localStorage)
+          .filter((k) => pat.test(k))
+          .forEach((k) => localStorage.removeItem(k));
+        Object.keys(sessionStorage)
+          .filter((k) => pat.test(k))
+          .forEach((k) => sessionStorage.removeItem(k));
+      } catch {
+        // storage access denied — ignore
       }
     }
 
-    function onDecline() {
-      if (!initialized) return;
-      amplitude.setOptOut(true);
+    function syncConsent() {
+      if (window.FLConsent?.hasAnalytics()) {
+        initAmplitude();
+        amplitude.setOptOut(false);
+      } else {
+        if (initialized) amplitude.setOptOut(true);
+        clearAmplitudeStorage();
+      }
     }
 
-    window.addEventListener("CookiebotOnAccept", onAccept);
-    window.addEventListener("CookiebotOnDecline", onDecline);
+    window.addEventListener("FLConsentChanged", syncConsent);
 
-    // Return visit: consent already stored from a previous session
-    if (cookiebotWindow.Cookiebot?.consent?.statistics) {
-      initAmplitude();
-    }
+    // Return visit: fl-consent.js already ran, check current state.
+    syncConsent();
 
     return () => {
-      window.removeEventListener("CookiebotOnAccept", onAccept);
-      window.removeEventListener("CookiebotOnDecline", onDecline);
+      window.removeEventListener("FLConsentChanged", syncConsent);
     };
   }, []);
 
