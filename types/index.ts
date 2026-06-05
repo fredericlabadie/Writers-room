@@ -1,6 +1,6 @@
 export type PersonaId = string;
 
-export type RoomType = "writers" | "jobhunt" | "career" | "publishing";
+export type RoomType = "writers" | "jobhunt" | "career" | "publishing" | "ttrpg" | "worldbuilding";
 
 export interface PersonaGenerationSettings {
   temperature: number;

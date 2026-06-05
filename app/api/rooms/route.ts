@@ -84,7 +84,7 @@ export async function POST(req: Request) {
 
   const inviteCode = generateInviteCode();
 
-  const VALID_ROOM_TYPES = ["writers", "jobhunt", "career", "publishing"];
+  const VALID_ROOM_TYPES = ["writers", "jobhunt", "career", "publishing", "ttrpg", "worldbuilding"];
   const safeRoomType = VALID_ROOM_TYPES.includes(room_type) ? room_type : "writers";
 
   const { data: room, error } = await supabase
