@@ -7021,6 +7021,8 @@ ${directorSynthesis}`,
                           jobhunt: "Describe the role or company…",
                           career: "What's the situation?",
                           publishing: "Tell me about your work…",
+                          ttrpg: "Describe your campaign, encounter, or ruling…",
+                          worldbuilding: "What part of the world are you building?",
                         }[roomType] ?? "What are you working on?")
                       : `${roomConfig.description} — @ to call an agent`
                   }
