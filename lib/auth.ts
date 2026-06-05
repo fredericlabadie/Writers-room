@@ -32,7 +32,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.googleTokenExpiry  = account.expires_at;
       }
 
-      if (user) token.userId = user.id;
+      // Use providerAccountId as the stable user ID — beta.19 generates a new
+      // UUID for user.id on every OAuth sign-in when no DB adapter is configured.
+      if (user && account) token.userId = account.providerAccountId;
 
       // On every subsequent request, proactively refresh if the token
       // is expired or within 60 seconds of expiry
@@ -81,11 +83,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return session;
     },
 
-    async signIn({ user }) {
+    async signIn({ user, account }) {
       if (!user.email) return false;
+      const stableId = account?.providerAccountId ?? user.id;
       const supabase = createSupabaseServiceClient();
       const { error } = await supabase.from("profiles").upsert(
-        { id: user.id, name: user.name, avatar_url: user.image },
+        { id: stableId, name: user.name, avatar_url: user.image },
         { onConflict: "id" }
       );
       if (error) console.error("[signIn] profile upsert failed:", error.message, error.code);
