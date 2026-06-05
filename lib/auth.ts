@@ -34,7 +34,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       // Use providerAccountId as the stable user ID — beta.19 generates a new
       // UUID for user.id on every OAuth sign-in when no DB adapter is configured.
-      if (user && account) token.userId = account.providerAccountId;
+      if (user && account) {
+        console.log("[jwt] provider:", account.provider, "providerAccountId:", account.providerAccountId, "user.id:", user.id);
+        token.userId = account.providerAccountId;
+      }
 
       // On every subsequent request, proactively refresh if the token
       // is expired or within 60 seconds of expiry
