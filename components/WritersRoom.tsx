@@ -187,6 +187,54 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
+function TBtn({ lbl, title, fn, bdr, color, mono }: { lbl: string; title: string; fn: () => void; bdr: string; color: string; mono: string }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div style={{ position: "relative" }} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
+      <button
+        onClick={fn}
+        style={{
+          background: "none",
+          border: `1px solid ${bdr}`,
+          borderRadius: 5,
+          width: 30,
+          height: 30,
+          cursor: "pointer",
+          color,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: mono,
+          fontSize: 12,
+        }}
+      >
+        {lbl}
+      </button>
+      {hov && (
+        <div style={{
+          position: "absolute",
+          top: "calc(100% + 6px)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: T.surf2,
+          border: `1px solid ${T.bdr2}`,
+          borderRadius: 4,
+          padding: "3px 7px",
+          whiteSpace: "nowrap",
+          fontFamily: mono,
+          fontSize: 10,
+          color: T.sub,
+          pointerEvents: "none",
+          zIndex: 100,
+          boxShadow: "0 4px 12px #0008",
+        }}>
+          {title}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Minimize / expand button — collapses message body to just the header
 function MinBtn({
   collapsed,
@@ -6653,27 +6701,15 @@ ${directorSynthesis}`,
                 fn: () => setModal("clear"),
               },
             ].map((b) => (
-              <button
+              <TBtn
                 key={b.lbl}
-                onClick={b.fn}
+                lbl={b.lbl}
                 title={b.title}
-                style={{
-                  background: "none",
-                  border: `1px solid ${T.bdr2}`,
-                  borderRadius: 5,
-                  width: 30,
-                  height: 30,
-                  cursor: "pointer",
-                  color: T.sub,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontFamily: T.mono,
-                  fontSize: 12,
-                }}
-              >
-                {b.lbl}
-              </button>
+                fn={b.fn}
+                bdr={T.bdr2}
+                color={T.sub}
+                mono={T.mono}
+              />
             ))}
           </>
         )}
