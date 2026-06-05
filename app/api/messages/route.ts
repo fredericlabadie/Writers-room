@@ -82,7 +82,10 @@ export async function POST(req: Request) {
 
   if (Array.isArray(artifactIds) && artifactIds.length) {
     const links = artifactIds.map((artifactId) => ({ message_id: data.id, artifact_id: artifactId }));
-    await supabase.from("message_artifacts").insert(links);
+    const { error: artifactError } = await supabase.from("message_artifacts").insert(links);
+    if (artifactError) {
+      console.error("[POST /api/messages] message_artifacts insert failed:", artifactError.message);
+    }
   }
 
   return NextResponse.json(data, { status: 201 });

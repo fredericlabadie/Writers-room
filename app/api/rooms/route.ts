@@ -20,6 +20,7 @@ export async function GET(req: Request) {
     const out = await supabase
       .from("rooms")
       .select("id, name, description, is_private, owner_id, invite_code, created_at")
+      .eq("is_private", false)
       .order("created_at", { ascending: false });
     error = out.error;
     data = (out.data ?? []).map((room: any) => ({ role: "reviewer", rooms: room }));
@@ -78,6 +79,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 
+  // Ensure profile row exists — signIn upsert may have failed silently for this user
+  await supabase.from("profiles").upsert({ id: actor.userId }, { onConflict: "id", ignoreDuplicates: true });
+
   const inviteCode = generateInviteCode();
 
   const VALID_ROOM_TYPES = ["writers", "jobhunt", "career", "publishing"];
@@ -104,11 +108,15 @@ export async function POST(req: Request) {
 
   // Add creator as owner member
   if (actor.userId) {
-    await supabase.from("room_members").insert({
+    const { error: memberError } = await supabase.from("room_members").insert({
       room_id: room.id,
       user_id: actor.userId,
       role: "owner",
     });
+    if (memberError) {
+      console.error("[POST /api/rooms] room_members insert failed:", memberError.message);
+      return NextResponse.json({ error: "Room created but failed to add you as owner" }, { status: 500 });
+    }
   }
 
   return NextResponse.json(room, { status: 201 });

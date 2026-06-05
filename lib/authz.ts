@@ -50,10 +50,10 @@ export async function verifyRoomAccess(supabase: any, roomId: string, actor: Act
   if (actor.mode === "review") {
     const { data: room } = await supabase
       .from("rooms")
-      .select("id")
+      .select("id, is_private")
       .eq("id", roomId)
       .single();
-    return !!room;
+    return !!room && !room.is_private;
   }
 
   const { data: membership } = await supabase

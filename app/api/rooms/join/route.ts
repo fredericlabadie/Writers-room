@@ -26,10 +26,15 @@ export async function POST(req: Request) {
   if (!room) return NextResponse.json({ error: "Invalid invite code" }, { status: 404 });
 
   // Upsert membership (safe if already a member)
-  await supabase.from("room_members").upsert(
+  const { error: memberError } = await supabase.from("room_members").upsert(
     { room_id: room.id, user_id: actor.userId, role: "member" },
     { onConflict: "room_id,user_id" }
   );
+
+  if (memberError) {
+    console.error("[POST /api/rooms/join] room_members upsert failed:", memberError.message);
+    return NextResponse.json({ error: "Failed to join room" }, { status: 500 });
+  }
 
   return NextResponse.json({ room_id: room.id, room_name: room.name });
 }
