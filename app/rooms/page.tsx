@@ -1696,18 +1696,25 @@ export default function RoomsPage() {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
-    fetchAll();
+    const controller = new AbortController();
+    fetchAll(controller.signal);
+    return () => controller.abort();
   }, [roomsVersion]);
 
-  async function fetchAll() {
+  async function fetchAll(signal?: AbortSignal) {
     setLoadingRooms(true);
-    const [roomsRes, foldersRes] = await Promise.all([
-      fetch("/api/rooms"),
-      fetch("/api/folders"),
-    ]);
-    if (roomsRes.ok) setRooms(await roomsRes.json());
-    if (foldersRes.ok) setFolders(await foldersRes.json());
-    setLoadingRooms(false);
+    try {
+      const [roomsRes, foldersRes] = await Promise.all([
+        fetch("/api/rooms", { signal }),
+        fetch("/api/folders", { signal }),
+      ]);
+      if (roomsRes.ok) setRooms(await roomsRes.json());
+      if (foldersRes.ok) setFolders(await foldersRes.json());
+    } catch (e: any) {
+      if (e?.name !== "AbortError") console.error("[fetchAll]", e);
+    } finally {
+      setLoadingRooms(false);
+    }
   }
 
   const toggleFolder = (id: string) => {
