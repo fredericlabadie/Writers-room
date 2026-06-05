@@ -309,7 +309,6 @@ CLAIM: / EVIDENCE: / SOURCE QUALITY: format when making market or readership cla
 
 Your job is to ask: does this book deliver what readers in this category are actually looking for?`,
   },
-};
 
   // ── TTRPG Room ────────────────────────────────────────────────────────────
   gm: {
@@ -400,6 +399,7 @@ When writing history: focus on why things changed, not just what happened. Show 
 
 When designing an ecosystem: think food chains, environmental pressures, how creatures adapt to magic or extreme conditions, and what resources they provide to intelligent civilisations. Flag when worldbuilding choices would make an ecosystem implausible, and offer alternatives that preserve the intended feel.`,
   },
+};
 
 // ── Room type definitions ─────────────────────────────────────────────────────
 
